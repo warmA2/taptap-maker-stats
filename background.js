@@ -456,13 +456,17 @@ function extractInput(obj) {
 
 function saveInput({ text, chatId, sessionId, via, turnId }) {
   const id = turnId || String(Date.now()) + Math.random().toString(16).slice(2);
+  const now = Date.now();
   const p = txPut('prompts', {
     turnId: id,
-    ts: Date.now(),
+    ts: now,
     chatId: chatId || sessionId || 'unknown',
     text: typeof text === 'string' ? text : '',
     chatRound: null, outText: '', inTokens: null, outTokens: null, credits: null,
     done: false, endedTs: null, via: via || 'auto',
+    // lastActive：本轮最后一次有动静的时间（发出 / 收到流式片段 / 收到用量回包），
+    // 用于区分"真的正在处理"和"没收到结束信号的遗留轮次"
+    lastActive: now,
   });
   return p;
 }
@@ -605,7 +609,7 @@ function onWsMessage(data) {
             if (typeof v === 'string' && v.trim()) { patch.creditType = v; break; }
           }
         }
-        return txPut('prompts', { ...row, ...patch });
+        return txPut('prompts', { ...row, ...patch, lastActive: Date.now() });
       });
     }
     // 服务端推送式回包（无 id）：run_state 等 → 按 turnId 精确匹配；匹配不到则补最近未完成轮次
@@ -899,6 +903,7 @@ function appendOutput(chatId, text) {
       if (!rows.length) { resolve(); return; }
       const target = rows[0];
       target.outText = (target.outText || '') + text;
+      target.lastActive = Date.now();
       store.put(target);
     };
     t.oncomplete = () => resolve();
@@ -1149,32 +1154,68 @@ async function queryCostSeries(hours) {
     .sort((a, b) => a.ts - b.ts);
 }
 
+// 一轮对话超过这么久没有任何动静（流出片段 / 用量回包 / 结束信号），
+// 就当成"没收到结束信号的遗留轮次"，不再算进"正在处理"。
+// 页面刷新、关标签、断网都会留下这种 !done 的记录，如果只按 done 判断，
+// 它们会永远挂在"进行中"里，看起来像一堆项目一直在跑。
+const ACTIVE_STALE_MS = 3 * 60 * 1000;
+
 async function querySessions() {
-  // 会话监控：开始/结束时间、总耗时、进行中任务数
+  // 会话监控：开始/结束时间、总耗时、真正正在处理的轮次
   const [prompts, chats] = await Promise.all([txGetAll('prompts'), txGetAll('chats')]);
   const titleMap = {};
   for (const c of chats) titleMap[c.id] = c.title || null;
+  const now = Date.now();
   const byChat = {};
   for (const p of prompts) {
     if (!p.chatId) continue;
-    const r = byChat[p.chatId] || (byChat[p.chatId] = { chatId: p.chatId, inputs: 0, running: 0, done: 0, start: Infinity, end: 0 });
+    const r = byChat[p.chatId] || (byChat[p.chatId] = {
+      chatId: p.chatId, inputs: 0, running: 0, done: 0, stale: 0,
+      start: Infinity, end: 0, lastActive: 0, runSince: null, lastText: '', lastTextTs: 0,
+    });
     r.inputs++;
     if (p.ts && p.ts < r.start) r.start = p.ts;
     if (p.endedTs && p.endedTs > r.end) r.end = p.endedTs;
-    if (p.done) r.done++; else r.running++;
+    const last = p.endedTs || p.lastActive || p.ts || 0;
+    if (last > r.lastActive) r.lastActive = last;
+    if (p.done) { r.done++; continue; }
+    // 未结算的轮次：只有最近 ACTIVE_STALE_MS 内还有动静，才算"正在处理"
+    if (now - (p.lastActive || p.ts || 0) < ACTIVE_STALE_MS) {
+      r.running++;
+      if (!r.runSince || (p.ts && p.ts < r.runSince)) r.runSince = p.ts || now;
+      if (p.text && (p.ts || 0) >= r.lastTextTs) { r.lastText = p.text; r.lastTextTs = p.ts || 0; }
+    } else {
+      r.stale++;
+    }
   }
-  const sessions = Object.values(byChat).map((r) => ({
-    chatId: r.chatId,
-    title: titleMap[r.chatId] || ('会话 ' + String(r.chatId).slice(0, 8)),
-    startTs: r.start === Infinity ? null : r.start,
-    endTs: r.end || null,
-    running: r.running,
-    done: r.done,
-    inputs: r.inputs,
-    durationMs: (r.end && r.start !== Infinity) ? Math.max(0, r.end - r.start) : null,
-  })).sort((a, b) => (b.startTs || 0) - (a.startTs || 0));
+  const sessions = Object.values(byChat).map((r) => {
+    const pid = chatProject[r.chatId] || null;
+    return {
+      chatId: r.chatId,
+      title: titleMap[r.chatId] || ('会话 ' + String(r.chatId).slice(0, 8)),
+      project: pid ? (projectTitles[pid] || ('项目 ' + String(pid).slice(0, 6))) : null,
+      startTs: r.start === Infinity ? null : r.start,
+      endTs: r.end || null,
+      lastActive: r.lastActive || null,
+      runSince: r.runSince || null,
+      lastText: r.lastText || '',
+      running: r.running,
+      done: r.done,
+      stale: r.stale,
+      inputs: r.inputs,
+      durationMs: (r.end && r.start !== Infinity) ? Math.max(0, r.end - r.start) : null,
+    };
+  }).sort((a, b) => {
+    // 正在处理的排最前，其次按最近活动时间倒序
+    if ((b.running > 0) !== (a.running > 0)) return (b.running > 0) - (a.running > 0);
+    if (b.running !== a.running) return b.running - a.running;
+    return (b.lastActive || 0) - (a.lastActive || 0);
+  });
   const runningTotal = sessions.reduce((a, s) => a + s.running, 0);
-  return { runningTotal, sessions: sessions.slice(0, 10) };
+  const staleTotal = sessions.reduce((a, s) => a + s.stale, 0);
+  // 顶部"正在处理"用：只含真有消息在跑的会话，最多 5 条
+  const active = sessions.filter((s) => s.running > 0).slice(0, 5);
+  return { runningTotal, staleTotal, activeCount: active.length, active, sessions: sessions.slice(0, 10) };
 }
 
 async function queryByModel() {

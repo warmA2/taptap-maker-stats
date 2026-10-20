@@ -174,18 +174,62 @@ function fmtDur(ms) {
   return `${sec}秒`;
 }
 
+// 顶部「正在处理」：只列真的有消息在跑（未结束 + 近 3 分钟有流式活动）的会话，
+// 不是"最近打开过的项目"。没有正在处理的会话时整块收起，不占位置。
+let _actTimer = null; // 时长秒级跳动
+let _actSig = '';     // 只在集合变化时重建 DOM，避免脉冲动画被打断
+
+function renderActive(d) {
+  const panel = $('act-panel'), box = $('act-list'), cnt = $('act-count');
+  if (!panel || !box) return;
+  const list = (d && d.active) || [];
+  if (!list.length) {
+    panel.hidden = true;
+    box.innerHTML = '';
+    _actSig = '';
+    return;
+  }
+  panel.hidden = false;
+  if (cnt) cnt.textContent = `${list.length} 个会话在跑`;
+  const sig = list.map((s) => `${s.chatId}|${s.runSince}|${s.inputs}|${s.lastText}`).join(',');
+  if (sig !== _actSig) {
+    _actSig = sig;
+    const now = Date.now();
+    box.innerHTML = list.map((s) => {
+      const since = s.runSince || now;
+      return `<div class="act-row">
+        <div class="act-h"><span class="dot"></span><span class="ell" title="${esc(s.chatId)}">${esc(s.title)}</span>${s.project ? `<span class="proj">${esc(s.project)}</span>` : ''}</div>
+        <div class="act-meta"><span>已跑 <b class="act-since" data-since="${since}">${fmtDur(now - since)}</b></span><span>本会话第 ${s.inputs} 条</span><span>最近活动 ${fmtTime(s.lastActive)}</span></div>
+        ${s.lastText ? `<div class="act-txt" title="${esc(s.lastText)}">${esc(String(s.lastText).slice(0, 80))}</div>` : ''}
+      </div>`;
+    }).join('');
+  }
+  if (!_actTimer) {
+    _actTimer = setInterval(() => {
+      document.querySelectorAll('.act-since').forEach((el) => {
+        const st = parseInt(el.dataset.since, 10);
+        if (st) el.textContent = fmtDur(Date.now() - st);
+      });
+    }, 1000);
+  }
+}
+
 function renderSessions() {
   query('sessions', null, (res) => {
     const box = $('sessions');
     if (!box) return;
     if (!res || !res.ok) { box.innerHTML = '<div class="muted">查询失败</div>'; return; }
     const d = res.data;
+    renderActive(d); // 顶部置顶块独立渲染（无进行中时自行隐藏）
     if (!d.sessions || !d.sessions.length) { box.innerHTML = '<div class="muted">暂无会话记录 · 发消息后自动出现</div>'; return; }
     // 增量刷新：会话状态/耗时都相同则跳过（进行中会话耗时在变化，会自然触发更新）
     const sig = d.sessions.map((s) => `${s.chatId}|${s.running}|${s.done}|${s.startTs}|${s.endTs}|${s.inputs}`).join(',');
     if (!sigChanged('sessions', sig)) return;
     const now = Date.now();
-    box.innerHTML = `<div class="sess-stat">正在执行的任务：<b>${d.runningTotal}</b></div>` +
+    const staleHint = d.staleTotal
+      ? `<span class="act-hint">另有 ${d.staleTotal} 条未收到结束信号</span>`
+      : '';
+    box.innerHTML = `<div class="sess-stat">正在执行的任务：<b>${d.runningTotal}</b>${staleHint}</div>` +
       d.sessions.map((s) => {
         const running = s.running > 0;
         const endTxt = running ? '<span class="live">进行中…</span>' : (s.endTs ? fmtTime(s.endTs) : '—');
@@ -775,6 +819,8 @@ refreshCredits();
 refreshCapture();
 renderSessions();
 refreshCharts();
-// 分级刷新：10 秒刷实时项（状态/积分/最近消息/今日概览），30 秒刷统计图表与会话——不做全量刷新
+// 分级刷新：10 秒刷实时项（状态/积分/最近消息/今日概览），5 秒刷「正在处理」，
+// 30 秒刷统计图表——不做全量刷新
 setInterval(() => { refresh(); refreshInjectStatus(); refreshCredits(); refreshCapture(); }, 10000);
-setInterval(() => { renderSessions(); refreshCharts(); }, 30000);
+setInterval(() => { renderSessions(); }, 5000);
+setInterval(() => { refreshCharts(); }, 30000);

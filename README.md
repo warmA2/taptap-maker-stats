@@ -3,7 +3,7 @@
 > 记录你在 [TapTap 制造](https://maker.taptap.cn/) 的**每一次输入**，按**会话**和**项目**统计 token 与积分消耗，侧边栏常驻显示**当前登录用户的各项积分余额**。
 > 一个纯本地的浏览器扩展 —— 数据只存在你自己的浏览器里，不上传任何服务器。
 
-![version](https://img.shields.io/badge/version-0.9.47-blue)
+![version](https://img.shields.io/badge/version-0.9.48-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/Chrome%20%2F%20Edge-114%2B-lightgrey)
 ![manifest](https://img.shields.io/badge/Manifest-V3-orange)
@@ -29,6 +29,7 @@
 
 | 模块 | 内容 |
 |---|---|
+| 正在处理 | **顶部置顶**：只列真的有消息在跑的会话 —— 会话名 · 所属项目 · 已跑时长（秒级跳动）· 本条输入摘要。判定标准是「这一轮还没结束、且近 3 分钟内还有流式输出」，不是最近打开过。没有在跑的任务时整块自动收起 |
 | 注入状态 | 顶部显示当前页面是否已生效（未注入会提示刷新） |
 | 我的积分 | 当前登录用户的完整积分构成：通用积分（长期 + 到期）、基础积分、付费积分、周期积分、会员卡权益、待发放批次；每 60 秒自动更新 |
 | 今日概览 | 今日消耗、输入次数、按小时消耗曲线 |
@@ -57,7 +58,7 @@
 
 ### 方式一：下载 Release（推荐）
 
-1. 到 [Releases](../../releases) 下载最新的 `taptap-maker-stats-0.9.47.zip` 并解压
+1. 到 [Releases](../../releases) 下载最新的 `taptap-maker-stats-<版本号>.zip` 并解压
 2. 打开 `chrome://extensions`（Edge 为 `edge://extensions`）
 3. 右上角开启 **开发者模式**
 4. 点 **加载已解压的扩展程序**，选择解压出来的文件夹
@@ -146,6 +147,9 @@ git clone https://github.com/warmA2/taptap-maker-stats.git
 
 **积分数字和官方页对不上？**
 优先看余额差分（官方口径）。若长期偏差，按上面「校准倍率」调一次。
+
+**某个会话明明在跑，为什么没出现在「正在处理」里？**
+判定看的是**这一轮有没有动静**：发出请求后，只要还在收流式片段就算在处理。如果超过 3 分钟没有任何输出，就当作已中断（刷新页面、关标签、断网都会留下这种半截轮次）——它会归到下方「进行中 & 会话耗时」里，标注为未收到结束信号，不再占用顶部位置。
 
 **平台改版抓不到了？**
 打开 Dashboard 底部调试面板，导出诊断 JSON 提 issue —— 里面是原始事件，足够定位解析规则要改哪里。
