@@ -339,11 +339,55 @@
         <h1>TapTap 制造统计</h1>
         <div class="sub">输入与积分 · 实时监测</div>
       </div>
-      <a class="link" href="#" id="brand-settings">设置</a>
       <a class="link" href="dashboard.html" target="_blank">完整版 ↗</a>
     </div>
     <div class="status-row" id="inject-status"></div>
   </div>
+
+  <!-- 设置就放在顶部，点标题就地展开，不用跳页也不用滚 -->
+  <section class="panel set-panel" id="set-panel">
+    <div class="panel-title set-head" id="set-toggle" role="button" tabindex="0" aria-expanded="false">
+      <span><span class="ic">⚙️</span>设置</span>
+      <span class="live" id="set-summary">展开配置</span>
+    </div>
+    <div id="set-body" hidden>
+      <div class="set-group first">
+        <div class="set-label">完成通知<span class="opt">一轮跑完推送到手机</span></div>
+        <label class="check"><input type="checkbox" id="sp-notify-enabled"> 启用完成通知</label>
+        <div class="chips" id="sp-chips">
+          <span class="chip" data-ch="ntfy">ntfy</span>
+          <span class="chip" data-ch="bark">Bark</span>
+          <span class="chip" data-ch="webhook">Webhook</span>
+        </div>
+        <div class="ch-block" data-for="ntfy">
+          <input type="text" id="sp-ntfy-topic" placeholder="ntfy topic（手机 App 里订阅同一个）" autocomplete="off">
+        </div>
+        <div class="ch-block" data-for="bark">
+          <input type="text" id="sp-bark-key" placeholder="Bark key" autocomplete="off">
+        </div>
+        <div class="ch-block" data-for="webhook">
+          <input type="text" id="sp-webhook" placeholder="飞书 / 企微机器人 Webhook 地址" autocomplete="off">
+          <input type="text" id="sp-feishu-secret" placeholder="飞书签名密钥（没开签名校验就留空）" autocomplete="off">
+        </div>
+        <label class="check"><input type="checkbox" id="sp-only-away"> 只在 maker 不在前台时推</label>
+        <div class="set-inline">短于 <input type="number" id="sp-min-sec" min="0" step="5" value="20"> 秒不推</div>
+      </div>
+
+      <div class="set-group">
+        <div class="set-label">积分折算</div>
+        <div class="set-inline">1 Token = <input type="number" id="sp-token-rate" min="0.001" step="0.001" value="1"> 积分</div>
+      </div>
+
+      <div class="set-actions">
+        <button class="btn primary" id="sp-save">保存</button>
+        <button class="btn plain" id="sp-test">发送测试</button>
+        <span class="set-msg" id="sp-msg"></span>
+      </div>
+      <div class="set-foot">
+        不想在侧边栏改？<a href="#" id="sp-open-options">打开完整设置页</a>（配置自定义域名时更方便）
+      </div>
+    </div>
+  </section>
 
   <!-- 正在处理：只列"有消息正在跑"的会话（未结束 + 近 3 分钟内有流式活动），不是最近打开的项目 -->
   <section class="panel act-panel" id="act-panel" hidden>
@@ -401,52 +445,7 @@
     <div id="capture-list" class="scroll-list"><div class="muted">等待消息…</div></div>
   </section>
 
-  <!-- 设置就在侧边栏里，不用再跳到扩展设置页 -->
-  <section class="panel set-panel" id="set-panel">
-    <div class="panel-title set-head" id="set-toggle" role="button" tabindex="0" aria-expanded="false">
-      <span><span class="ic">⚙️</span>设置</span>
-      <span class="live" id="set-summary">展开配置</span>
-    </div>
-    <div id="set-body" hidden>
-      <div class="set-group first">
-        <div class="set-label">完成通知<span class="opt">一轮跑完推送到手机</span></div>
-        <label class="check"><input type="checkbox" id="sp-notify-enabled"> 启用完成通知</label>
-        <div class="chips" id="sp-chips">
-          <span class="chip" data-ch="ntfy">ntfy</span>
-          <span class="chip" data-ch="bark">Bark</span>
-          <span class="chip" data-ch="webhook">Webhook</span>
-        </div>
-        <div class="ch-block" data-for="ntfy">
-          <input type="text" id="sp-ntfy-topic" placeholder="ntfy topic（手机 App 里订阅同一个）" autocomplete="off">
-        </div>
-        <div class="ch-block" data-for="bark">
-          <input type="text" id="sp-bark-key" placeholder="Bark key" autocomplete="off">
-        </div>
-        <div class="ch-block" data-for="webhook">
-          <input type="text" id="sp-webhook" placeholder="飞书 / 企微机器人 Webhook 地址" autocomplete="off">
-          <input type="text" id="sp-feishu-secret" placeholder="飞书签名密钥（没开签名校验就留空）" autocomplete="off">
-        </div>
-        <label class="check"><input type="checkbox" id="sp-only-away"> 只在 maker 不在前台时推</label>
-        <div class="set-inline">短于 <input type="number" id="sp-min-sec" min="0" step="5" value="20"> 秒不推</div>
-      </div>
-
-      <div class="set-group">
-        <div class="set-label">积分折算</div>
-        <div class="set-inline">1 Token = <input type="number" id="sp-token-rate" min="0.001" step="0.001" value="1"> 积分</div>
-      </div>
-
-      <div class="set-actions">
-        <button class="btn primary" id="sp-save">保存</button>
-        <button class="btn plain" id="sp-test">发送测试</button>
-        <span class="set-msg" id="sp-msg"></span>
-      </div>
-      <div class="set-foot">
-        不想在侧边栏改？<a href="#" id="sp-open-options">打开完整设置页</a>（配置自定义域名时更方便）
-      </div>
-    </div>
-  </section>
-
-  <div class="foot">数据仅保存在本机浏览器 · ID 固定不丢失</div>
+<div class="foot">数据仅保存在本机浏览器 · ID 固定不丢失</div>
   <script src="sidepanel.js"></script>
 </body>
 </html>

@@ -318,17 +318,6 @@ function initSettings() {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleFn(); }
   });
 
-  // 头部「设置」链接：展开并滚过去，省得从顶部一直滚到底
-  const headLink = $('brand-settings');
-  if (headLink) {
-    headLink.addEventListener('click', (e) => {
-      e.preventDefault();
-      if (body.hidden) toggleFn();
-      const panel = $('set-panel');
-      if (panel && panel.scrollIntoView) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
-  }
-
   document.querySelectorAll('#sp-chips .chip').forEach((el) => {
     el.addEventListener('click', () => setChannelUI(el.dataset.ch));
   });
