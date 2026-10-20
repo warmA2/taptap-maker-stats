@@ -1,0 +1,12 @@
+# 构建产物
+*.zip
+*.crx
+*.pem
+*.xpi
+
+# 依赖与临时文件
+node_modules/
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log

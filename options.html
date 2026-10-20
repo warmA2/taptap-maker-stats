@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>TapTap 制造统计 · 设置</title>
+<style>
+  body { font-family: "Microsoft YaHei", system-ui, sans-serif; margin: 0; background: #f6f8fb; color: #1f2937; padding: 24px; }
+  .wrap { max-width: 640px; margin: 0 auto; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 20px; }
+  h1 { font-size: 18px; margin: 0 0 16px; }
+  .row { margin-bottom: 16px; }
+  label { display: block; font-size: 14px; margin-bottom: 6px; font-weight: 600; }
+  input[type=number], input[type=text] { width: 220px; padding: 8px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; }
+  .hint { font-size: 12px; color: #6b7280; margin-top: 6px; line-height: 1.6; }
+  .save { background: #1d4ed8; color: #fff; border: 0; border-radius: 6px; padding: 10px 22px; font-size: 14px; cursor: pointer; }
+  .save:hover { background: #1e40af; }
+  .ok { color: #059669; font-size: 13px; margin-left: 12px; }
+  code { background: #f3f4f6; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  .proj-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+  .proj-row .pid { color: #6b7280; font-size: 12px; flex: 1; word-break: break-all; }
+  .proj-row .auto { color: #059669; font-size: 12px; width: 110px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>TapTap 制造统计 · 设置</h1>
+  <div class="row">
+    <label>1 Token 折算积分倍率</label>
+    <input type="number" id="token-rate" min="0.001" step="0.001" value="1">
+    <div class="hint">
+      扩展从请求响应里直接抓"积分"字段（若能抓到会优先使用实际值）；<br>
+      抓不到时按 <code>输入Tokens + 输出Tokens × 倍率</code> 估算。<br>
+      默认 1（1 Token ≈ 1 积分）。你可以对照"我的积分"页面的实际扣减来校准这个倍率。
+    </div>
+  </div>
+  <button class="save" id="save">保存</button><span class="ok" id="ok"></span>
+</div>
+<script src="options.js"></script>
+</body>
+</html>

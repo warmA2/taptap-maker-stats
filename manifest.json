@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "TapTap 制造 · 输入与积分统计",
+  "version": "0.9.47",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxi6BHrzN/SnByS57/ZPKO/837HhIuYwKeV6wiFHApezUA1NBGURAuSllhGeDE9CxnVBNgQ8TmX5lfkG5EykOoSKZSyR/pFC8EMZZFjdlGLPJvafHfxOQDFqsRknYeHeicfj/nRQi3pT1zHbruGowhcA7mqyOC0TBlDnn7WZCq00ic+z76vvn0M63ut9jMXhfE526EJk95e5Nws6zc/cvC4M3eda0amPPZHl7qDOb8n//B6uHlnvS2bvBAbKG7ApVdKv0BttDxbBfd2mgzTmTTSFuNrCxAszbnAah/pwHkzAF3j8oerHjKNGVhw2WWn5J5jKcD+rEus2KR41sG8jW1QIDAQAB",
+  "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "description": "记录你在 TapTap 制造（maker.taptap.cn）的每次输入与积分消耗，侧边栏实时显示当前登录用户各项积分余额。数据全部保存在本机浏览器。",
+  "permissions": ["storage", "sidePanel", "downloads", "scripting"],
+  "host_permissions": ["https://maker.taptap.cn/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "TapTap 制造统计（点击打开侧边栏）",
+    "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png" }
+  },
+  "options_page": "options.html",
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://maker.taptap.cn/*"],
+      "js": ["main-hook.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://maker.taptap.cn/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>TapTap 制造 · 输入与积分统计</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: "Microsoft YaHei", system-ui, sans-serif; margin: 0; background: #f6f8fb; color: #1f2937; }
+  header { background: #111827; color: #fff; padding: 16px 24px; display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+  header h1 { margin: 0; font-size: 18px; }
+  header .sub { font-size: 12px; color: #9ca3af; }
+  main { max-width: 1080px; margin: 0 auto; padding: 20px 16px 40px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 18px; }
+  .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px; }
+  .card .v { font-size: 24px; font-weight: 700; color: #1d4ed8; }
+  .card .l { font-size: 12px; color: #6b7280; margin-top: 4px; }
+  .panel { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .panel h2 { margin: 0 0 12px; font-size: 15px; }
+  .panel h3 { margin: 14px 0 8px; font-size: 13px; color: #374151; }
+  canvas { width: 100%; height: 220px; display: block; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+  th { color: #6b7280; font-weight: 500; font-size: 12px; }
+  .bar-wrap { display: flex; align-items: center; gap: 8px; }
+  .bar { height: 12px; background: #bfdbfe; border-radius: 3px; min-width: 2px; }
+  .num { min-width: 52px; text-align: right; font-variant-numeric: tabular-nums; }
+  .chat-row { cursor: pointer; }
+  .chat-row:hover td { background: #f8fafc; }
+  .detail { display: none; }
+  .detail.open { display: table-row; }
+  .detail td { background: #f9fafb; }
+  .prompt-text { max-width: 560px; white-space: pre-wrap; word-break: break-all; font-size: 12px; color: #374151; }
+  .muted { color: #9ca3af; }
+  .tag { display: inline-block; background: #eff6ff; color: #1d4ed8; border-radius: 4px; padding: 1px 6px; font-size: 11px; margin-left: 6px; }
+  details summary { cursor: pointer; font-size: 13px; color: #374151; }
+  .raw { font-size: 11px; color: #6b7280; font-family: Consolas, monospace; white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow: auto; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>TapTap 制造 · 输入与积分统计</h1>
+  <span class="sub">数据只存在本机浏览器（IndexedDB）· 需要先打开 maker.taptap.cn 使用才会记录</span>
+</header>
+<main>
+  <div class="cards">
+    <div class="card"><div class="v" id="all-inputs">–</div><div class="l">累计输入</div></div>
+    <div class="card"><div class="v" id="all-chars">–</div><div class="l">累计输出字符</div></div>
+    <div class="card"><div class="v" id="all-tokens">–</div><div class="l">累计 Tokens（测得）</div></div>
+    <div class="card"><div class="v" id="all-credits">–</div><div class="l">累计积分（测得）</div></div>
+    <div class="card"><div class="v" id="week-inputs">–</div><div class="l">近 7 天输入</div></div>
+    <div class="card"><div class="v" id="today-inputs">–</div><div class="l">今日输入</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>按日趋势</h2>
+    <canvas id="day-chart" height="220"></canvas>
+    <div class="muted" style="font-size:12px;margin-top:6px;" id="day-note">输入次数（柱）与测得积分（线），积分若未抓到则为 0。</div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel">
+      <h2>按会话排行（项目）</h2>
+      <table>
+        <thead><tr><th>会话 / 项目</th><th>输入</th><th>Tokens</th><th>积分</th></tr></thead>
+        <tbody id="chat-body"></tbody>
+      </table>
+      <div class="muted" id="chat-empty" style="padding:12px 0;display:none;">暂无数据</div>
+    </div>
+    <div class="panel">
+      <h2>积分余额快照</h2>
+      <canvas id="balance-chart" height="220"></canvas>
+      <div class="muted" style="font-size:12px;margin-top:6px;" id="balance-note">来自 /api/v1/credits 的余额快照；未抓到则显示提示。</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>积分构成（当前登录 · 最新快照）</h2>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;" id="credit-breakdown"></div>
+    <table>
+      <thead><tr><th>类型</th><th>数量</th><th>有效期至</th><th>来源</th><th>绑定项目</th></tr></thead>
+      <tbody id="credit-items"></tbody>
+    </table>
+    <div class="muted" id="credit-empty" style="padding:12px 0;display:none;">暂无积分数据</div>
+  </div>
+
+  <div class="panel">
+    <h2>项目积分消耗明细（最近 50 条）</h2>
+    <table>
+      <thead><tr><th>项目</th><th>用途</th><th>消耗</th><th>时间</th></tr></thead>
+      <tbody id="txn-body"></tbody>
+    </table>
+    <div class="muted" id="txn-empty" style="padding:12px 0;display:none;">暂无消耗记录</div>
+  </div>
+
+  <div class="panel">
+    <h2>输入明细</h2>
+    <table>
+      <thead><tr><th>时间</th><th>会话</th><th>输入内容</th><th>输出字符</th><th>Tokens</th><th>积分</th></tr></thead>
+      <tbody id="prompt-body"></tbody>
+    </table>
+    <div class="muted" id="prompt-empty" style="padding:12px 0;display:none;">暂无数据</div>
+  </div>
+
+  <div class="panel">
+    <details>
+      <summary>调试：最近捕获的原始事件（前 50 条，用于核对抓取是否正常）</summary>
+      <div class="raw" id="raw-box">加载中…</div>
+    </details>
+  </div>
+</main>
+<script src="dashboard.js"></script>
+</body>
+</html>
