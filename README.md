@@ -65,7 +65,7 @@
 ### 方式二：源码加载
 
 ```bash
-git clone https://github.com/warmA2/TapTapMakerHelper.git
+git clone https://github.com/warmA2/taptap-maker-stats.git
 ```
 
 然后在 `chrome://extensions` 里加载这个目录（`manifest.json` 就在根目录）。
