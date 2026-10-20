@@ -3,7 +3,7 @@
 > 记录你在 [TapTap 制造](https://maker.taptap.cn/) 的**每一次输入**，按**会话**和**项目**统计 token 与积分消耗，侧边栏常驻显示**当前登录用户的各项积分余额**。
 > 一个纯本地的浏览器扩展 —— 数据只存在你自己的浏览器里，不上传任何服务器。
 
-![version](https://img.shields.io/badge/version-0.9.56-blue)
+![version](https://img.shields.io/badge/version-0.9.57-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/Chrome%20%2F%20Edge-114%2B-lightgrey)
 ![manifest](https://img.shields.io/badge/Manifest-V3-orange)
@@ -135,7 +135,7 @@ TapTap 制造 · 任务完成
 - **会话**带明确前缀。如果那轮的标题其实是条链接（平台拿你第一句话当标题），会压成 `example.com/some/path…`，不至于看着像通知里夹带外链。
 - **余额**取最新快照的分类构成；通用积分优先用消息流里的实时值（比快照更新鲜）。基础积分等分类本地没同步过时就不显示那一项，不写 0 冒充。
 - **其他在跑**：本条之外还有哪些会话正在处理，以及各自已经跑了多久。判定和侧边栏顶部「正在处理」完全一致（未结束 + 近 3 分钟还有输出），列表按活跃度排，最多列 3 个、其余折叠成「另有 N 个会话…」。**没有别的会话在跑时整段不出现**，不留「0 个」占位。
-- **跳转**：飞书是消息卡片底部按钮，ntfy / Bark 点通知本体直接跳。地址优先取该会话自己的页面，取不到退回 maker 首页（按钮变「打开 TapTap 制造」）。
+- **跳转**：飞书是消息卡片底部按钮，ntfy / Bark 点通知本体直接跳。地址按官方格式拼成 `https://maker.taptap.cn/app/{appId}?chatId={chatId}`，直接落到那一轮所在的会话；缺 appId 时才退回 maker 首页（按钮变「打开 TapTap 制造」）。
 
 两个条件开关（都在设置页）：
 

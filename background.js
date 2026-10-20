@@ -108,6 +108,28 @@ const chatProject = {};
 const chatUrlMap = {};
 let lastMakerUrl = null;
 
+// 从 maker 页面地址里取出 appId（/app/{appId}?chatId={chatId}）
+function appIdFromUrl(u) {
+  const m = String(u || '').match(/\/app\/([^/?#]+)/);
+  return m ? m[1] : null;
+}
+
+function chatIdFromUrl(u) {
+  const m = String(u || '').match(/[?&]chatid=([^&#]+)/i);
+  if (!m) return null;
+  try { return decodeURIComponent(m[1]); } catch (e) { return m[1]; }
+}
+
+// 会话页地址统一拼成官方格式：https://maker.taptap.cn/app/{appId}?chatId={chatId}
+// 不直接复用 location.href —— 它可能带着 entering/from/tab 之类的临时参数，
+// 也不保证 chatId 还在（同项目内切会话时前端可能只改内部状态）。自己拼只带必需的两个参数，必定指向那次会话。
+function buildChatUrl(chatId) {
+  if (!chatId) return null;
+  const appId = chatProject[chatId] || appIdFromUrl(chatUrlMap[chatId]) || appIdFromUrl(lastMakerUrl);
+  if (!appId) return null;
+  return 'https://maker.taptap.cn/app/' + encodeURIComponent(appId) + '?chatId=' + encodeURIComponent(chatId);
+}
+
 // 积分分类（对照官方前端 vQ 函数：paid→event→project→normal→memberGeneral→general）
 // 页面余额口径（截图核对）：通用积分=general类批次 current 之和；基础积分=normal类；付费=paid类；
 // 活动=event类；项目包走 /credits/project-packages 的 balance。
@@ -542,8 +564,13 @@ function onWsSend(data) {
   const p = msg.params || {};
   const chatId = p.chatId || null;
   const sessionId = p.sessionId || null;
-  // 发消息的这一刻，用户就在对应会话页上 → 把当前页面地址绑给这个会话，供通知回跳
-  if (chatId && lastMakerUrl) chatUrlMap[chatId] = lastMakerUrl;
+  // 发消息的这一刻，用户就在对应会话页上 → 把当前页面地址绑给这个会话，供通知回跳。
+  // 顺手从地址里补 chatId→appId，这样通知里能直接拼出规范链接，不必等 dom-scan。
+  if (chatId && lastMakerUrl) {
+    chatUrlMap[chatId] = lastMakerUrl;
+    const aid = appIdFromUrl(lastMakerUrl);
+    if (aid && !chatProject[chatId]) chatProject[chatId] = aid;
+  }
   const turnId = msg.id || String(Date.now()) + Math.random().toString(16).slice(2);
   // 文本字段可能是 prompt/text/content/message 等任意位置，通用提取兜底
   const hit = extractInput(msg);
@@ -1384,8 +1411,8 @@ async function buildNotifyMsg(row, chatTitle) {
   const others = await notifyOtherRunning(row.chatId);
   if (others) lines.push(others);
 
-  // 回跳地址：优先这个会话自己的页面，退化为最近打开的 maker 页面
-  const exact = row.chatId ? chatUrlMap[row.chatId] : null;
+  // 回跳地址：按官方格式拼 /app/{appId}?chatId={chatId}，确保落到那一轮所在的会话
+  const exact = row.chatId ? (buildChatUrl(row.chatId) || chatUrlMap[row.chatId] || null) : null;
   const url = exact || lastMakerUrl || 'https://maker.taptap.cn/';
   return {
     title: 'TapTap 制造 · 任务完成',
@@ -1769,7 +1796,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     const pageUrl = (msg.data && msg.data.url) || (sender && sender.tab && sender.tab.url) || null;
     if (pageUrl && /^https:\/\/maker\.taptap\.cn\//.test(pageUrl)) {
       lastMakerUrl = pageUrl;
-      if (msg.data && msg.data.chatId) chatUrlMap[msg.data.chatId] = pageUrl;
+      // 地址里带着 /app/{appId}?chatId={chatId} 时，顺便把这两个 id 记下来，通知就能直接拼规范链接
+      const cid = chatIdFromUrl(pageUrl) || (msg.data && msg.data.chatId) || null;
+      if (cid) {
+        chatUrlMap[cid] = pageUrl;
+        const aid = appIdFromUrl(pageUrl);
+        if (aid && !chatProject[cid]) chatProject[cid] = aid;
+      }
     }
     ingest(msg.type, msg.data);
     sendResponse({ ok: true });
