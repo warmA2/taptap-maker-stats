@@ -1335,6 +1335,32 @@ async function notifyBalanceLine() {
   }
 }
 
+// 通知里带一段"其他正在处理的会话"：复用 querySessions 的判定（未结束 + 3 分钟内有动静），
+// 排除本条通知自己的会话。没有别的在跑就不输出这段，免得每一条通知都多一行废话。
+async function notifyOtherRunning(excludeChatId) {
+  try {
+    const { active } = await querySessions();
+    const list = (active || []).filter((s) => s.chatId !== excludeChatId);
+    if (!list.length) return null;
+    const now = Date.now();
+    const out = [`其他在跑（${list.length} 个）：`];
+    for (const s of list.slice(0, 3)) {
+      let title = fmtChatTitle(s.title) || ('会话 ' + String(s.chatId).slice(0, 8));
+      if (title.length > 26) title = title.slice(0, 26) + '…';
+      // 项目名只认平台给的真名，取不到就只写会话名，不拿 "项目 xx3f2a" 之类占位凑数
+      const pid = chatProject[s.chatId] || null;
+      const proj = pid ? (projectTitles[pid] || null) : null;
+      const name = [proj, title].filter(Boolean).join(' · ');
+      const ran = s.runSince ? fmtNotifyDur(now - s.runSince) : null;
+      out.push('· ' + name + (ran ? ' · 已跑 ' + ran : ''));
+    }
+    if (list.length > 3) out.push('· 另有 ' + (list.length - 3) + ' 个会话…');
+    return out.join('\n');
+  } catch (e) {
+    return null;
+  }
+}
+
 async function buildNotifyMsg(row, chatTitle) {
   const pid = row.chatId ? (chatProject[row.chatId] || null) : null;
   const proj = pid ? (projectTitles[pid] || null) : null;
@@ -1354,6 +1380,9 @@ async function buildNotifyMsg(row, chatTitle) {
   if (bal) lines.push(bal);
   const txt = String(row.text || '').replace(/\s+/g, ' ').trim();
   if (txt) lines.push('「' + txt.slice(0, 60) + (txt.length > 60 ? '…' : '') + '」');
+  // 本条之外还有哪些会话在跑 —— 长任务常常是几个并行，通知里一并说明
+  const others = await notifyOtherRunning(row.chatId);
+  if (others) lines.push(others);
 
   // 回跳地址：优先这个会话自己的页面，退化为最近打开的 maker 页面
   const exact = row.chatId ? chatUrlMap[row.chatId] : null;
@@ -1751,9 +1780,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     getNotifyCfg().then(async (cfg) => {
       if (!cfg.notifyEnabled) { sendResponse({ ok: false, error: '先勾选「启用完成通知」并保存' }); return; }
       try {
+        // 有其他会话在跑就显示真实的，没有就用示例，确保能看到这段的排版
+        const live = await notifyOtherRunning(null);
         await sendNotify(cfg, {
           title: 'TapTap 制造 · 测试通知',
-          body: '项目：示例项目\n会话：示例会话\n耗时 2 分 18 秒 · 消耗 12 积分\n余额：通用 1,234 · 基础 500 · 合计 1,734\n这是一条测试消息，不影响任何统计。',
+          body: [
+            '项目：示例项目',
+            '会话：示例会话',
+            '耗时 2 分 18 秒 · 消耗 12 积分',
+            '余额：通用 1,234 · 基础 500 · 合计 1,734',
+            live || '其他在跑（示例）：\n· 示例项目 · 另一个会话 · 已跑 41 秒',
+            '这是一条测试消息，不影响任何统计。',
+          ].join('\n'),
           url: 'https://maker.taptap.cn/',
           actionLabel: '打开 TapTap 制造',
         });
