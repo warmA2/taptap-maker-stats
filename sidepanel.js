@@ -282,6 +282,8 @@ function initSettings() {
   chrome.storage.sync.get(SET_DEFAULTS, (cfg) => {
     _setCfg = cfg;
     $('sp-notify-enabled').checked = !!cfg.notifyEnabled;
+    const head = $('sp-notify-toggle');
+    if (head) head.checked = !!cfg.notifyEnabled;
     $('sp-ntfy-topic').value = cfg.notifyNtfyTopic || '';
     $('sp-bark-key').value = cfg.notifyBarkKey || '';
     $('sp-webhook').value = cfg.notifyWebhook || '';
@@ -309,15 +311,46 @@ function initSettings() {
     try { chrome.storage.local.set({ sidebarSettingsOpen: !body.hidden }); } catch (e) { /* ignore */ }
     updateSetSummary();
   };
-  toggle.addEventListener('click', toggleFn);
+  toggle.addEventListener('click', (e) => {
+    // 标题行右侧的开关是独立控件，点它只切开关，不展开/收起
+    if (e.target && e.target.closest && e.target.closest('.switch')) return;
+    toggleFn();
+  });
   toggle.addEventListener('keydown', (e) => {
+    if (e.target && e.target.closest && e.target.closest('.switch')) return;
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleFn(); }
   });
+
+  // 标题行常驻开关：不展开也能直接开/关完成通知
+  const headSwitch = $('sp-notify-toggle');
+  if (headSwitch) {
+    // 阻止冒泡到 #set-toggle（否则点开关会顺带展开/收起）
+    const wrap = headSwitch.closest('.switch');
+    if (wrap) wrap.addEventListener('click', (e) => e.stopPropagation());
+    headSwitch.addEventListener('change', () => {
+      const on = headSwitch.checked;
+      // 只写这一个键，避免把展开区里尚未保存的其它字段一起提交
+      try { chrome.storage.sync.set({ notifyEnabled: on }); } catch (e) { /* ignore */ }
+      _setCfg = Object.assign({}, _setCfg || SET_DEFAULTS, { notifyEnabled: on });
+      const cb = $('sp-notify-enabled');
+      if (cb) cb.checked = on;
+      updateSetSummary(_setCfg);
+      setMsg(on ? '完成通知已开启' : '完成通知已关闭', true);
+    });
+  }
 
   document.querySelectorAll('#sp-chips .chip').forEach((el) => {
     el.addEventListener('click', () => setChannelUI(el.dataset.ch));
   });
-  $('sp-notify-enabled').addEventListener('change', () => updateSetSummary());
+  // 展开区的勾选框与标题开关是同一个状态，改哪边都即时生效并互相同步
+  $('sp-notify-enabled').addEventListener('change', () => {
+    const on = $('sp-notify-enabled').checked;
+    const head = $('sp-notify-toggle');
+    if (head) head.checked = on;
+    try { chrome.storage.sync.set({ notifyEnabled: on }); } catch (e) { /* ignore */ }
+    _setCfg = Object.assign({}, _setCfg || SET_DEFAULTS, { notifyEnabled: on });
+    updateSetSummary(_setCfg);
+  });
   $('sp-save').addEventListener('click', () => { saveSettings(false); });
   $('sp-test').addEventListener('click', () => { testNotify(); });
   $('sp-open-options').addEventListener('click', (e) => {
