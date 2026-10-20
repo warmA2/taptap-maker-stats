@@ -287,7 +287,11 @@
   /* ===== 侧边栏内设置 ===== */
   .set-head { cursor: pointer; user-select: none; margin-bottom: 0; }
   .set-head:hover { color: #1d4ed8; }
-  .set-head .live { color: var(--ink-3); font-size: 10px; }
+  .set-head .live {
+    color: var(--ink-3); font-size: 10px;
+    /* 通道名长短不一，限宽省略，避免把标题挤走；开关永远贴在行尾，位置不随文案变化 */
+    max-width: 132px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right;
+  }
   .set-head-right { display: flex; align-items: center; gap: 8px; margin-left: auto; }
   /* 通知开关：收起状态下也能直接开关，不必展开表单 */
   .switch { position: relative; display: inline-flex; width: 34px; height: 20px; cursor: pointer; flex: 0 0 auto; }
@@ -365,11 +369,11 @@
     <div class="panel-title set-head" id="set-toggle" role="button" tabindex="0" aria-expanded="false">
       <span><span class="ic">⚙️</span>设置</span>
       <span class="set-head-right">
+        <span class="live" id="set-summary">展开配置</span>
         <label class="switch" title="完成通知开关">
           <input type="checkbox" id="sp-notify-toggle" aria-label="启用完成通知">
           <span class="track"></span>
         </label>
-        <span class="live" id="set-summary">展开配置</span>
       </span>
     </div>
     <div id="set-body" hidden>
