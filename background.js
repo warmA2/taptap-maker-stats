@@ -103,6 +103,10 @@ try { chrome.storage.local.get('wsGeneralLatest', (o) => { if (o && o.wsGeneralL
 // 项目名映射（projectId → 页面标题）与 会话→项目 映射（/app/{projectId}?chatid={chatId}）
 const projectTitles = {};
 const chatProject = {};
+// 会话 → 页面地址：通知里的「打开会话」按钮要跳回去，就得知道那一轮是在哪个页面跑的。
+// chatId 不一定出现在 URL 里，所以先记「最近一次 maker 页面地址」，发消息那一刻绑定给 chatId。
+const chatUrlMap = {};
+let lastMakerUrl = null;
 
 // 积分分类（对照官方前端 vQ 函数：paid→event→project→normal→memberGeneral→general）
 // 页面余额口径（截图核对）：通用积分=general类批次 current 之和；基础积分=normal类；付费=paid类；
@@ -538,6 +542,8 @@ function onWsSend(data) {
   const p = msg.params || {};
   const chatId = p.chatId || null;
   const sessionId = p.sessionId || null;
+  // 发消息的这一刻，用户就在对应会话页上 → 把当前页面地址绑给这个会话，供通知回跳
+  if (chatId && lastMakerUrl) chatUrlMap[chatId] = lastMakerUrl;
   const turnId = msg.id || String(Date.now()) + Math.random().toString(16).slice(2);
   // 文本字段可能是 prompt/text/content/message 等任意位置，通用提取兜底
   const hit = extractInput(msg);
@@ -1288,10 +1294,28 @@ async function isAwayFromMaker() {
   }
 }
 
+// 会话标题常常就是用户第一句话。有人第一句粘的就是链接，
+// 直接照搬会让通知里出现一条看着像"我们塞的外链"的东西 —— 这里压成 "域名/路径…"
+function fmtChatTitle(t) {
+  const s = String(t || '').trim();
+  if (!s) return '';
+  if (/^https?:\/\//i.test(s)) {
+    try {
+      const u = new URL(s);
+      const tail = u.pathname.replace(/^\/+/, '').replace(/\/+$/, '');
+      return u.hostname.replace(/^www\./i, '') + (tail ? '/' + tail.slice(0, 16) : '') + '…';
+    } catch (e) {
+      return s.replace(/^https?:\/\//i, '').slice(0, 28) + '…';
+    }
+  }
+  return s.length > 36 ? s.slice(0, 36) + '…' : s;
+}
+
 function buildNotifyMsg(row, chatTitle) {
   const pid = row.chatId ? (chatProject[row.chatId] || null) : null;
   const proj = pid ? (projectTitles[pid] || null) : null;
-  const head = [proj, chatTitle].filter(Boolean).join(' · ') || 'TapTap 制造';
+  const title = fmtChatTitle(chatTitle);
+  const head = [proj, title].filter(Boolean).join(' · ') || 'TapTap 制造';
   const dur = row.endedTs && row.ts ? (row.endedTs - row.ts) : null;
   const spent = (row.credits != null && row.credits > 0) ? row.credits : null;
   const meta = ['耗时 ' + fmtNotifyDur(dur)];
@@ -1300,7 +1324,15 @@ function buildNotifyMsg(row, chatTitle) {
   const lines = [head, meta.join(' · ')];
   const txt = String(row.text || '').replace(/\s+/g, ' ').trim();
   if (txt) lines.push('「' + txt.slice(0, 60) + (txt.length > 60 ? '…' : '') + '」');
-  return { title: 'TapTap 制造 · 任务完成', body: lines.join('\n') };
+  // 回跳地址：优先这个会话自己的页面，退化为最近打开的 maker 页面
+  const exact = row.chatId ? chatUrlMap[row.chatId] : null;
+  const url = exact || lastMakerUrl || 'https://maker.taptap.cn/';
+  return {
+    title: 'TapTap 制造 · 任务完成',
+    body: lines.join('\n'),
+    url,
+    actionLabel: exact ? '打开这个会话' : '打开 TapTap 制造',
+  };
 }
 
 async function sendNotify(cfg, msg) {
@@ -1309,11 +1341,17 @@ async function sendNotify(cfg, msg) {
     const topic = String(cfg.notifyNtfyTopic || '').trim();
     if (!topic) throw new Error('没填 ntfy topic');
     const server = String(cfg.notifyNtfyServer || 'https://ntfy.sh').trim().replace(/\/+$/, '');
+    const payload = {
+      topic, title: msg.title, message: msg.body, priority: 3, tags: ['white_check_mark'],
+      // 点开通知直接跳到会话；actions 是 ntfy 上的按钮
+      click: msg.url,
+      actions: [{ action: 'view', label: msg.actionLabel || '打开', url: msg.url, clear: false }],
+    };
     const res = await fetch(server, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       // 走 JSON publish：标题/正文是中文，用 header 传会撞 ByteString 限制
-      body: JSON.stringify({ topic, title: msg.title, message: msg.body, priority: 3, tags: ['white_check_mark'] }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) throw new Error('ntfy 返回 ' + res.status);
     return;
@@ -1325,7 +1363,8 @@ async function sendNotify(cfg, msg) {
     const res = await fetch(base, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: msg.title, body: msg.body, group: 'TapTap制造', sound: 'bell', isArchive: 1 }),
+      // url：点通知本体直接跳会话
+      body: JSON.stringify({ title: msg.title, body: msg.body, group: 'TapTap制造', sound: 'bell', isArchive: 1, url: msg.url }),
     });
     if (!res.ok) throw new Error('Bark 返回 ' + res.status);
     return;
@@ -1341,8 +1380,26 @@ async function sendNotify(cfg, msg) {
     : 'generic';
   let payload;
   if (kind === 'feishu') {
-    // 飞书 text 消息没有 title 字段，标题并进正文第一行
-    payload = { msg_type: 'text', content: { text: plain } };
+    // 用消息卡片，才能带「打开会话」按钮（text 消息只能放纯文本）
+    payload = {
+      msg_type: 'interactive',
+      card: {
+        config: { wide_screen_mode: true },
+        header: { template: 'green', title: { tag: 'plain_text', content: msg.title } },
+        elements: [
+          { tag: 'div', text: { tag: 'lark_md', content: msg.body } },
+          {
+            tag: 'action',
+            actions: [{
+              tag: 'button',
+              text: { tag: 'plain_text', content: msg.actionLabel || '打开' },
+              type: 'primary',
+              url: msg.url,
+            }],
+          },
+        ],
+      },
+    };
     const secret = String(cfg.notifyFeishuSecret || '').trim();
     if (secret) {
       const ts = Math.floor(Date.now() / 1000);
@@ -1350,12 +1407,15 @@ async function sendNotify(cfg, msg) {
       payload.sign = await feishuSign(secret, ts);
     }
   } else if (kind === 'wecom') {
-    payload = { msgtype: 'text', text: { content: plain } };
+    // 企微 text 消息不支持链接，markdown 才带得动
+    payload = { msgtype: 'markdown', markdown: { content: `${plain}\n[${msg.actionLabel || '打开'}](${msg.url})` } };
   } else {
     payload = {
       title: msg.title,
       body: msg.body,
       text: plain,
+      url: msg.url,
+      link: msg.url,
       msg_type: 'text',
       msgtype: 'text',
       content: { text: plain },
@@ -1645,6 +1705,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (sender && sender.tab && sender.tab.id != null) {
       injectedTabs.set(sender.tab.id, { url: sender.tab.url || (msg.data && msg.data.url), ts: Date.now() });
     }
+    // 记下最近一次 maker 页面地址，供通知里的「打开会话」按钮回跳
+    const pageUrl = (msg.data && msg.data.url) || (sender && sender.tab && sender.tab.url) || null;
+    if (pageUrl && /^https:\/\/maker\.taptap\.cn\//.test(pageUrl)) {
+      lastMakerUrl = pageUrl;
+      if (msg.data && msg.data.chatId) chatUrlMap[msg.data.chatId] = pageUrl;
+    }
     ingest(msg.type, msg.data);
     sendResponse({ ok: true });
     return;
@@ -1657,6 +1723,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         await sendNotify(cfg, {
           title: 'TapTap 制造 · 测试通知',
           body: '看到这条说明通道已经配好了。\n这是一条测试消息，不影响任何统计。',
+          url: 'https://maker.taptap.cn/',
+          actionLabel: '打开 TapTap 制造',
         });
         sendResponse({ ok: true });
       } catch (e) {
