@@ -3,7 +3,7 @@
 > 记录你在 [TapTap 制造](https://maker.taptap.cn/) 的**每一次输入**，按**会话**和**项目**统计 token 与积分消耗，侧边栏常驻显示**当前登录用户的各项积分余额**。
 > 一个纯本地的浏览器扩展 —— 数据只存在你自己的浏览器里，不上传任何服务器。
 
-![version](https://img.shields.io/badge/version-0.9.54-blue)
+![version](https://img.shields.io/badge/version-0.9.55-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/Chrome%20%2F%20Edge-114%2B-lightgrey)
 ![manifest](https://img.shields.io/badge/Manifest-V3-orange)
@@ -119,16 +119,19 @@ git clone https://github.com/warmA2/taptap-maker-stats.git
 
 ```
 TapTap 制造 · 任务完成
-示例项目 · 示例会话
-耗时 2 分 18 秒 · 消耗 12 积分
+项目：示例项目
+会话：示例会话
+耗时 2 分 18 秒 · 消耗 12 积分 · 345 tokens
+余额：通用 1,234 · 基础 500 · 合计 1,734
 「帮我把这一段的内容调整一下…」
 
 [ 打开这个会话 ]   ← 飞书里是卡片按钮，点了直接跳回那一轮所在的页面
 ```
 
-**跳转**：飞书发的是消息卡片，底部带「打开这个会话」按钮；ntfy 和 Bark 是点通知本体直接跳。地址优先取该会话自己所在的页面，取不到就退回 maker 首页（按钮文案会变成「打开 TapTap 制造」）。
-
-**会话标题**：平台拿你第一句话当标题，所以如果第一句粘的是链接，标题就会是一条 URL。通知里会把它压成 `example.com/some/path…` 这种形式，免得看着像通知里塞了外链。
+- **项目**来自平台的项目列表；抓不到时写「未识别」，不会瞎猜。
+- **会话**带明确前缀。如果那轮的标题其实是条链接（平台拿你第一句话当标题），会压成 `example.com/some/path…`，不至于看着像通知里夹带外链。
+- **余额**取最新快照的分类构成；通用积分优先用消息流里的实时值（比快照更新鲜）。基础积分等分类本地没同步过时就不显示那一项，不写 0 冒充。
+- **跳转**：飞书是消息卡片底部按钮，ntfy / Bark 点通知本体直接跳。地址优先取该会话自己的页面，取不到退回 maker 首页（按钮变「打开 TapTap 制造」）。
 
 两个条件开关（都在设置页）：
 

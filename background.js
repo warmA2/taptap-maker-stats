@@ -1311,19 +1311,50 @@ function fmtChatTitle(t) {
   return s.length > 36 ? s.slice(0, 36) + '…' : s;
 }
 
-function buildNotifyMsg(row, chatTitle) {
+// 通知里带一行余额：优先用最新 API 快照的分类，通用余额用消息流里的实时值覆盖
+async function notifyBalanceLine() {
+  try {
+    const d = await queryCreditBreakdown();
+    const b = (d.latest && d.latest.breakdown) || null;
+    const ws = d.wsLatest || null;
+    const num = (v) => (v == null ? null : Number(v).toLocaleString('zh-CN'));
+    let general = b && b.general != null ? b.general : null;
+    // wsGeneralLatest 是随每条消息扣减的实时通用余额，比快照更新鲜
+    if (ws && ws.general != null && (general == null || (ws.ts || 0) > ((d.latest && d.latest.ts) || 0))) general = ws.general;
+    const parts = [];
+    if (general != null) parts.push('通用 ' + num(general));
+    if (b && b.normal != null && b.normal > 0) parts.push('基础 ' + num(b.normal));
+    if (b) {
+      const total = ['general', 'memberGeneral', 'normal', 'paid', 'event', 'project']
+        .reduce((a, k) => a + (Number(b[k]) || 0), 0);
+      if (total > 0) parts.push('合计 ' + num(total));
+    }
+    return parts.length ? '余额：' + parts.join(' · ') : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function buildNotifyMsg(row, chatTitle) {
   const pid = row.chatId ? (chatProject[row.chatId] || null) : null;
   const proj = pid ? (projectTitles[pid] || null) : null;
   const title = fmtChatTitle(chatTitle);
-  const head = [proj, title].filter(Boolean).join(' · ') || 'TapTap 制造';
   const dur = row.endedTs && row.ts ? (row.endedTs - row.ts) : null;
   const spent = (row.credits != null && row.credits > 0) ? row.credits : null;
+
+  // 结构化输出：项目 / 会话 各有前缀，避免把会话标题误认成别的东西
+  const lines = [];
+  lines.push('项目：' + (proj || '未识别'));
+  lines.push('会话：' + (title || '未命名会话'));
   const meta = ['耗时 ' + fmtNotifyDur(dur)];
   if (spent != null) meta.push(`消耗 ${spent} 积分`);
   if (row.outTokens != null) meta.push(`${row.outTokens} tokens`);
-  const lines = [head, meta.join(' · ')];
+  lines.push(meta.join(' · '));
+  const bal = await notifyBalanceLine();
+  if (bal) lines.push(bal);
   const txt = String(row.text || '').replace(/\s+/g, ' ').trim();
   if (txt) lines.push('「' + txt.slice(0, 60) + (txt.length > 60 ? '…' : '') + '」');
+
   // 回跳地址：优先这个会话自己的页面，退化为最近打开的 maker 页面
   const exact = row.chatId ? chatUrlMap[row.chatId] : null;
   const url = exact || lastMakerUrl || 'https://maker.taptap.cn/';
@@ -1470,7 +1501,7 @@ async function maybeNotifyDone(turnId) {
   if (cfg.notifyOnlyAway && !(await isAwayFromMaker())) return;
   let chatTitle = '';
   try { const c = await txGet('chats', row.chatId); chatTitle = (c && c.title) || ''; } catch (e) {}
-  const msg = buildNotifyMsg(row, chatTitle);
+  const msg = await buildNotifyMsg(row, chatTitle);
   try {
     await sendNotify(cfg, msg);
     saveRaw({ ts: Date.now(), note: 'notify-sent', json: { channel: cfg.notifyChannel, turnId: String(turnId) } });
@@ -1722,7 +1753,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       try {
         await sendNotify(cfg, {
           title: 'TapTap 制造 · 测试通知',
-          body: '看到这条说明通道已经配好了。\n这是一条测试消息，不影响任何统计。',
+          body: '项目：示例项目\n会话：示例会话\n耗时 2 分 18 秒 · 消耗 12 积分\n余额：通用 1,234 · 基础 500 · 合计 1,734\n这是一条测试消息，不影响任何统计。',
           url: 'https://maker.taptap.cn/',
           actionLabel: '打开 TapTap 制造',
         });
