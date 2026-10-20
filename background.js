@@ -1233,6 +1233,7 @@ const NOTIFY_DEFAULTS = {
   notifyNtfyTopic: '',
   notifyBarkKey: '',
   notifyWebhook: '',
+  notifyFeishuSecret: '',       // 飞书自定义机器人开了「签名校验」才需要
   notifyOnlyAway: true,         // 只在 maker 页面不在前台时推，避免人就在电脑前还响
   notifyMinSec: 20,             // 一轮短于这个秒数就不推，免得每句闲聊都弹
 };
@@ -1331,16 +1332,62 @@ async function sendNotify(cfg, msg) {
   }
   const url = String(cfg.notifyWebhook || '').trim();
   if (!url) throw new Error('没填 Webhook 地址');
+  // 各家的文本消息体格式不通用，按域名分派；认不出来的就走通用结构
+  //   飞书   { msg_type:'text', content:{ text } }   + 可选 timestamp/sign
+  //   企微   { msgtype:'text',  text:{ content } }
+  const plain = msg.title + '\n' + msg.body;
+  const kind = /open\.feishu\.cn|open\.larksuite\.com/i.test(url) ? 'feishu'
+    : /qyapi\.weixin\.qq\.com/i.test(url) ? 'wecom'
+    : 'generic';
+  let payload;
+  if (kind === 'feishu') {
+    // 飞书 text 消息没有 title 字段，标题并进正文第一行
+    payload = { msg_type: 'text', content: { text: plain } };
+    const secret = String(cfg.notifyFeishuSecret || '').trim();
+    if (secret) {
+      const ts = Math.floor(Date.now() / 1000);
+      payload.timestamp = String(ts);
+      payload.sign = await feishuSign(secret, ts);
+    }
+  } else if (kind === 'wecom') {
+    payload = { msgtype: 'text', text: { content: plain } };
+  } else {
+    payload = {
+      title: msg.title,
+      body: msg.body,
+      text: plain,
+      msg_type: 'text',
+      msgtype: 'text',
+      content: { text: plain },
+      source: 'taptap-maker-stats',
+    };
+  }
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      title: msg.title, body: msg.body, text: msg.title + '\n' + msg.body,
-      msgtype: 'text', content: { text: msg.title + '\n' + msg.body }, // 兼容飞书/企微的字段形态
-      source: 'taptap-maker-stats',
-    }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error('Webhook 返回 ' + res.status);
+  // 飞书/企微失败时 HTTP 也可能是 200，真错误在 body 里（code / errcode 不为 0）
+  let j = null;
+  try { j = await res.clone().json(); } catch (e) { j = null; }
+  if (j) {
+    if (typeof j.code === 'number' && j.code !== 0) throw new Error('飞书返回 code=' + j.code + ' ' + (j.msg || ''));
+    if (typeof j.errcode === 'number' && j.errcode !== 0) throw new Error('企微返回 errcode=' + j.errcode + ' ' + (j.errmsg || ''));
+  }
+}
+
+// 飞书自定义机器人签名：以 `${timestamp}\n${secret}` 为密钥，对空串做 HMAC-SHA256 再 base64
+async function feishuSign(secret, ts) {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw', enc.encode(String(ts) + '\n' + secret),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(''));
+  let bin = '';
+  for (const b of new Uint8Array(sig)) bin += String.fromCharCode(b);
+  return btoa(bin);
 }
 
 // 一轮结束时调用。延迟 900ms 再读记录：结算/用量回包常在结束信号之后落地，

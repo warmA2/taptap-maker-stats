@@ -12,6 +12,7 @@ const DEFAULTS = {
   notifyNtfyTopic: '',
   notifyBarkKey: '',
   notifyWebhook: '',
+  notifyFeishuSecret: '',
   notifyOnlyAway: true,
   notifyMinSec: 20,
 };
@@ -42,6 +43,7 @@ chrome.storage.sync.get(DEFAULTS, (cfg) => {
   $('ntfy-server').value = (cfg.notifyNtfyServer && cfg.notifyNtfyServer !== 'https://ntfy.sh') ? cfg.notifyNtfyServer : '';
   $('bark-key').value = cfg.notifyBarkKey || '';
   $('webhook-url').value = cfg.notifyWebhook || '';
+  $('feishu-secret').value = cfg.notifyFeishuSecret || '';
   $('notify-only-away').checked = !!cfg.notifyOnlyAway;
   $('notify-min-sec').value = cfg.notifyMinSec;
   setChannel(cfg.notifyChannel || 'ntfy');
@@ -93,6 +95,7 @@ async function save(silent) {
     notifyNtfyTopic: ($('ntfy-topic').value || '').trim(),
     notifyBarkKey: ($('bark-key').value || '').trim(),
     notifyWebhook: ($('webhook-url').value || '').trim(),
+    notifyFeishuSecret: ($('feishu-secret').value || '').trim(),
     notifyOnlyAway: $('notify-only-away').checked,
     notifyMinSec: Math.max(0, parseInt($('notify-min-sec').value, 10) || 0),
   };

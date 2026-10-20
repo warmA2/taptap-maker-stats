@@ -31,6 +31,7 @@
   .row { margin-bottom: 14px; }
   .row:last-child { margin-bottom: 0; }
   .row > label.t { display: block; font-size: 12px; font-weight: 700; color: #27324d; margin-bottom: 6px; }
+  .row > label.t .opt { font-weight: 400; color: #93a1b5; font-size: 11px; margin-left: 3px; }
   input[type=number], input[type=text], input[type=password] {
     width: 100%; max-width: 360px; padding: 8px 10px; border: 1px solid #d7deea;
     border-radius: 8px; font-size: 13px; font-family: inherit; background: #fbfcfe; color: var(--ink);
@@ -102,7 +103,7 @@
         <span class="chip" data-ch="bark">Bark · 仅 iPhone</span>
         <span class="chip" data-ch="webhook">自定义 Webhook</span>
       </div>
-      <div class="hint">都<b>不用注册、不用自己搭服务器</b>。ntfy.sh 和 Bark 都是现成的免费推送服务，你只需要在手机上装个 App 拿一个地址。</div>
+      <div class="hint">ntfy.sh 和 Bark 是现成的免费推送服务，手机上装个 App 拿个地址就行；Webhook 用你已有的机器人地址。<b>都不用注册，也不用自己搭服务器。</b></div>
     </div>
 
     <div class="row ch-block" data-for="ntfy">
@@ -127,11 +128,18 @@
 
     <div class="row ch-block" data-for="webhook">
       <label class="t">Webhook 地址</label>
-      <input type="text" id="webhook-url" placeholder="https://…" autocomplete="off">
+      <input type="text" id="webhook-url" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/…" autocomplete="off">
       <div class="hint">
-        任意能收 JSON POST 的地址，例如 Server 酱、飞书 / 企业微信机器人、自建转发。<br>
-        发送字段：<code>title</code>、<code>body</code>、<code>text</code>、<code>content.text</code>（兼容常见机器人格式）。
+        <b>飞书：</b>群里点「设置」→「群机器人」→「添加机器人」→「自定义机器人」→ 复制 Webhook 地址粘到这里。<br>
+        <b>企业微信：</b>群机器人同理，地址形如 <code>qyapi.weixin.qq.com/cgi-bin/webhook/send?key=…</code>。<br>
+        其他能收 JSON POST 的地址（Server 酱、自建转发）也能用，按域名自动匹配消息格式。
       </div>
+    </div>
+
+    <div class="row ch-block" data-for="webhook">
+      <label class="t">飞书签名密钥<span class="opt">· 只飞书用，可留空</span></label>
+      <input type="text" id="feishu-secret" placeholder="机器人开启「签名校验」时，把密钥填这里" autocomplete="off">
+      <div class="hint">飞书机器人默认不校验签名，留空即可。如果你在机器人设置里勾了「签名校验」，把这串密钥填进来，扩展会自动算 timestamp + sign。</div>
     </div>
 
     <div class="row">

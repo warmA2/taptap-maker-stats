@@ -3,7 +3,7 @@
 > 记录你在 [TapTap 制造](https://maker.taptap.cn/) 的**每一次输入**，按**会话**和**项目**统计 token 与积分消耗，侧边栏常驻显示**当前登录用户的各项积分余额**。
 > 一个纯本地的浏览器扩展 —— 数据只存在你自己的浏览器里，不上传任何服务器。
 
-![version](https://img.shields.io/badge/version-0.9.50-blue)
+![version](https://img.shields.io/badge/version-0.9.51-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/Chrome%20%2F%20Edge-114%2B-lightgrey)
 ![manifest](https://img.shields.io/badge/Manifest-V3-orange)
@@ -99,7 +99,20 @@ git clone https://github.com/warmA2/taptap-maker-stats.git
 |---|---|---|
 | **ntfy** | 安卓 / iPhone，免注册免账号 | 一个 topic 字符串。手机装 ntfy → 「订阅 topic」→ 填同一个串 |
 | **Bark** | 仅 iPhone，最省事 | App 首页那串 key |
-| **自定义 Webhook** | Server 酱 / 飞书 / 企业微信机器人 / 自建转发 | 任意能收 JSON POST 的地址 |
+| **自定义 Webhook** | 飞书 / 企业微信机器人 / Server 酱 / 自建转发 | 对应机器人的 Webhook 地址 |
+
+### 用飞书的话，三步
+
+1. 飞书群里点「设置」→「群机器人」→「添加机器人」→「自定义机器人」，随便起个名
+2. 复制它给的 Webhook 地址（形如 `https://open.feishu.cn/open-apis/bot/v2/hook/xxxxxxxx`）
+3. 扩展设置页选「**自定义 Webhook**」，地址粘进去 → 保存 → 点「发送测试通知」
+
+如果那个机器人勾了「签名校验」，把密钥也填到「飞书签名密钥」那一栏 —— 扩展会自动算 `timestamp` + `sign`，不用你手算。
+
+> 企业微信机器人同理，地址形如 `qyapi.weixin.qq.com/cgi-bin/webhook/send?key=…`，按域名自动切换消息格式，不需要额外配置。
+
+> 飞书/企微在**发送失败时 HTTP 状态码也是 200**，真错误在响应体的 `code` 里（例如 19001 表示 token 无效）。扩展会读这个字段，所以「发送测试通知」能直接告诉你失败原因，不会给你一个假的成功。
+
 
 推送内容长这样：
 
