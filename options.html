@@ -67,6 +67,17 @@
 
   .ch-block { display: none; }
   .ch-block.on { display: block; }
+
+  details.adv { margin-top: 10px; }
+  details.adv summary {
+    font-size: 11px; color: #7c8aa0; cursor: pointer; list-style: none;
+    display: inline-flex; align-items: center; gap: 5px; user-select: none;
+  }
+  details.adv summary::-webkit-details-marker { display: none; }
+  details.adv summary::before { content: '▸'; font-size: 9px; }
+  details.adv[open] summary::before { content: '▾'; }
+  details.adv summary:hover { color: #1d4ed8; }
+  details.adv input { margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -77,7 +88,7 @@
     <div class="card-h">完成通知<span class="tag">推送到手机</span></div>
     <div class="lead">
       一轮对话跑完时把结果推到手机 —— 人不在电脑前也能知道它跑完了。<br>
-      扩展直接请求你自己填的服务，没有中间服务器，也不收集任何账号信息。
+      走的是现成的免费推送服务，扩展直接把消息发过去，不经过任何第三方中转，也不收集账号信息。
     </div>
 
     <div class="row">
@@ -91,6 +102,7 @@
         <span class="chip" data-ch="bark">Bark · 仅 iPhone</span>
         <span class="chip" data-ch="webhook">自定义 Webhook</span>
       </div>
+      <div class="hint">都<b>不用注册、不用自己搭服务器</b>。ntfy.sh 和 Bark 都是现成的免费推送服务，你只需要在手机上装个 App 拿一个地址。</div>
     </div>
 
     <div class="row ch-block" data-for="ntfy">
@@ -100,18 +112,17 @@
         手机装 <b>ntfy</b>（App Store / Google Play / F-Droid 都有）→ 点「订阅 topic」→ 填同一个字符串。<br>
         topic 相当于密码，起个别人猜不到的；公共服务器上知道 topic 的人就能收到消息。
       </div>
-    </div>
-
-    <div class="row ch-block" data-for="ntfy">
-      <label class="t">ntfy 服务器</label>
-      <input type="text" id="ntfy-server" placeholder="https://ntfy.sh" autocomplete="off">
-      <div class="hint">用公共服务器留空即可；自建服务器填自己的地址，保存时会额外申请该域名的访问权限。</div>
+      <details class="adv">
+        <summary>用别的 ntfy 服务器（大多数人不用管）</summary>
+        <input type="text" id="ntfy-server" placeholder="https://ntfy.sh" autocomplete="off">
+        <div class="hint">留空就用公共的 ntfy.sh，不用自己搭任何东西。只有你另外部署了 ntfy 服务端，才需要在这里填你的地址。</div>
+      </details>
     </div>
 
     <div class="row ch-block" data-for="bark">
       <label class="t">Bark Key</label>
       <input type="text" id="bark-key" placeholder="例如 AbCdEf123456 或 https://api.day.app/AbCdEf123456" autocomplete="off">
-      <div class="hint">iPhone 装 <b>Bark</b> → 首页复制那串 key 粘进来。自建 Bark 服务端可以直接填完整地址。</div>
+      <div class="hint">iPhone 装 <b>Bark</b> → 首页复制那串 key 粘进来，不用注册。</div>
     </div>
 
     <div class="row ch-block" data-for="webhook">

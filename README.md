@@ -3,7 +3,7 @@
 > 记录你在 [TapTap 制造](https://maker.taptap.cn/) 的**每一次输入**，按**会话**和**项目**统计 token 与积分消耗，侧边栏常驻显示**当前登录用户的各项积分余额**。
 > 一个纯本地的浏览器扩展 —— 数据只存在你自己的浏览器里，不上传任何服务器。
 
-![version](https://img.shields.io/badge/version-0.9.49-blue)
+![version](https://img.shields.io/badge/version-0.9.50-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/Chrome%20%2F%20Edge-114%2B-lightgrey)
 ![manifest](https://img.shields.io/badge/Manifest-V3-orange)
@@ -93,10 +93,12 @@ git clone https://github.com/warmA2/taptap-maker-stats.git
 
 长任务跑完不用守在电脑前。右键扩展图标 →「选项」→「完成通知」，选通道、填参数，点 **发送测试通知** 验证能不能收到。
 
+**不需要自己搭服务器，也不需要注册任何账号。** 前两条通道用的都是现成的免费推送服务 —— 手机上装个 App、拿到一串地址填进来就行。
+
 | 通道 | 适合 | 需要填什么 |
 |---|---|---|
 | **ntfy** | 安卓 / iPhone，免注册免账号 | 一个 topic 字符串。手机装 ntfy → 「订阅 topic」→ 填同一个串 |
-| **Bark** | 仅 iPhone，最省事 | App 首页那串 key（自建服务端可直接填完整 URL） |
+| **Bark** | 仅 iPhone，最省事 | App 首页那串 key |
 | **自定义 Webhook** | Server 酱 / 飞书 / 企业微信机器人 / 自建转发 | 任意能收 JSON POST 的地址 |
 
 推送内容长这样：
@@ -117,8 +119,8 @@ TapTap 制造 · 任务完成
 
 - 同一轮只推一次（结束信号和结算回包都会触发，内部按 turnId 去重）。
 - 通知里的积分是**延迟 0.9 秒**再读的 —— 等结算数据落地，数字才准。
-- 扩展直接 POST 到你填的服务，**没有中间服务器**，也不上传任何账号信息。ntfy 公共服务器上看得到 topic 的人就能收到，所以 topic 起个猜不到的。
-- 填了 ntfy.sh / api.day.app 以外的域名，保存时会额外申请该域名的访问权限（浏览器弹窗，你同意才生效）。
+- 扩展直接把消息发给推送服务本身，**不经过本项目的任何中转**，也不上传你的统计明细和账号信息。用 ntfy 公共频道时，知道 topic 的人能看到消息，所以 topic 起个猜不到的。
+- 填了 ntfy.sh / api.day.app 以外的地址（比如自建 ntfy、自建 Bark），保存时会额外申请该域名的访问权限（浏览器弹窗，你同意才生效）。
 
 ---
 
