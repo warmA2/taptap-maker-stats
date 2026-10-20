@@ -961,7 +961,7 @@ function refreshCharts() {
         <span class="l">${fmt(r.count)} 次</span>
       </div>`).join('');
     } else if (sigChanged('byModel', 'empty')) {
-      box.innerHTML = '<div class="muted">暂无模型记录 · 打开积分页后自动统计</div>';
+      box.innerHTML = '<div class="muted">暂无模型记录 · 发一条消息后自动抓取模型名</div>';
     }
   });
   query('byDay', null, (res) => {

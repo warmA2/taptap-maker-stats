@@ -87,6 +87,25 @@ function scanMetricFields(node, depth, out) {
   }
 }
 
+// 深层找模型名：RPC 回包的字段位置不固定，model 可能藏在 params/result 几层里面
+const MODEL_KEYS = ['model', 'modelName', 'model_name', 'modelId', 'model_id', 'agent', 'agentName', 'driver', 'llm'];
+function deepFindModel(node, depth) {
+  if (!node || typeof node !== 'object' || depth > 5) return null;
+  for (const k of MODEL_KEYS) {
+    const v = node[k];
+    if (typeof v === 'string' && v.trim() && v.trim().length <= 64) return v.trim();
+    if (v && typeof v === 'object') {
+      const inner = v.name || v.id || v.modelName;
+      if (typeof inner === 'string' && inner.trim() && inner.trim().length <= 64) return inner.trim();
+    }
+  }
+  for (const v of Object.values(node)) {
+    const hit = deepFindModel(v, depth + 1);
+    if (hit) return hit;
+  }
+  return null;
+}
+
 function sumBy(rows, fn) { return rows.reduce((a, r) => a + (fn(r) || 0), 0); }
 
 /* ---------------- 事件解析 ---------------- */
@@ -301,6 +320,16 @@ function parseCreditsPayload(data) {
   };
 }
 
+// 模型名在不同接口里字段名不统一（model / modelName / agent / driver / llm…），
+// 而且往往不在积分明细里，只在对话消息体里出现 → 用统一的时间点拾取。
+function pickModel(...nodes) {
+  for (const n of nodes) {
+    const hit = deepFindModel(n, 0);
+    if (hit) return hit;
+  }
+  return null;
+}
+
 // 解析 /api/v1/credits/transactions（积分明细：项目对话/素材生成消耗）
 // 官方记录标题自带项目名，如“项目 (神剑伏魔录) 对话消耗”；另抓候选名称字段供展示
 function parseTransactions(data) {
@@ -480,7 +509,7 @@ function extractInput(obj) {
   };
 }
 
-function saveInput({ text, chatId, sessionId, via, turnId }) {
+function saveInput({ text, chatId, sessionId, via, turnId, model }) {
   const id = turnId || String(Date.now()) + Math.random().toString(16).slice(2);
   const now = Date.now();
   const p = txPut('prompts', {
@@ -488,6 +517,7 @@ function saveInput({ text, chatId, sessionId, via, turnId }) {
     ts: now,
     chatId: chatId || sessionId || 'unknown',
     text: typeof text === 'string' ? text : '',
+    model: model || null,
     chatRound: null, outText: '', inTokens: null, outTokens: null, credits: null,
     done: false, endedTs: null, via: via || 'auto',
     // lastActive：本轮最后一次有动静的时间（发出 / 收到流式片段 / 收到用量回包），
@@ -557,7 +587,7 @@ function onWsSend(data) {
     const hit = extractInput(msg);
     if (hit) {
       wsSession.set(data.url, { chatId: hit.chatId, sessionId: hit.sessionId });
-      return saveInput({ ...hit, via: 'ws:' + (hit.method || 'unknown') });
+      return saveInput({ ...hit, model: pickModel(msg.params, msg.params && msg.params.extras, msg), via: 'ws:' + (hit.method || 'unknown') });
     }
     return undefined;
   }
@@ -581,6 +611,7 @@ function onWsSend(data) {
     ts: data.ts || Date.now(),
     chatId: chatId || sessionId || (hit && (hit.chatId || hit.sessionId)) || 'unknown',
     text,
+    model: pickModel(p, p.extras, msg),
     chatRound: p.chatRound != null ? p.chatRound : null,
     outText: '',
     inTokens: null, outTokens: null, credits: null,
@@ -625,6 +656,10 @@ function onWsMessage(data) {
         if (result && result.turnId != null) {
           patch.turnId = String(result.turnId);
           patch.wsTurnId = String(result.turnId);
+        }
+        if (!row.model) {
+          const m = deepFindModel(msg.result, 0) || deepFindModel(msg.error, 0);
+          if (m) patch.model = m;
         }
         if (tokens.length) patch.outTokens = sumBy(tokens, (f) => f.value);
         if (credits.length) patch.credits = sumBy(credits, (f) => f.value);
@@ -709,6 +744,8 @@ function onTurnCredits({ msg, credits, data }) {
   const now = data.ts || Date.now();
   const projectId = cid ? (chatProject[cid] || null) : null;
   const projName = projectId ? (projectTitles[projectId] || projectId.slice(0, 8)) : null;
+  // 结算回包是最容易带模型名的地方（本轮用了哪个模型），一并记下来
+  const model = pickModel(params, params.extras, msg) || null;
   const putCost = txGetAll('txns').then((all) => {
     // 有 turnId：永久去重（历史消息每次进会话都会重复拉取，turnId 稳定）；无 turnId：60 秒窗口
     const dup = (all || []).some((t) => t.kind === 'msg-cost' &&
@@ -721,13 +758,14 @@ function onTurnCredits({ msg, credits, data }) {
         amount: -consumed, remaining: generalRemains,
         title: projName ? '项目 (' + projName + ') 对话消耗' : '对话消耗',
         turnId: turnId || null,
+        model,
       });
     }
   }).catch(() => {});
   // 回填 prompt：turnId 精确匹配；匹配不到则补同会话最近未完成轮（时间窗口归因兜底，限定 chatId 防跨会话错配）
   const patchPrompt = (turnId
     ? matchPromptByTurn(String(turnId)).then((row) => {
-        if (row) return txPut('prompts', { ...row, credits: consumed, done: true, endedTs: now });
+        if (row) return txPut('prompts', { ...row, credits: consumed, done: true, endedTs: now, model: row.model || model });
         return updateLatestPrompt({ credits: consumed }, String(turnId), now, cid);
       })
     : updateLatestPrompt({ credits: consumed }, null, now, cid)).catch(() => {});
@@ -1133,51 +1171,82 @@ async function queryByChat() {
 
 async function queryByDay() {
   const [prompts, txns, balances] = await Promise.all([txGetAll('prompts'), txGetAll('txns'), txGetAll('balances')]);
+  const keyOf = (ts) => {
+    const d = new Date(ts);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
   const dayMap = {};
+  const rowFor = (key) => dayMap[key] || (dayMap[key] = {
+    day: key, inputs: 0, inTokens: 0, outTokens: 0, credits: 0, _txn: 0, _diff: null,
+  });
   for (const r of prompts) {
-    const d = new Date(r.ts || Date.now());
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    const row = dayMap[key] || (dayMap[key] = { day: key, inputs: 0, inTokens: 0, outTokens: 0, credits: 0 });
+    const row = rowFor(keyOf(r.ts || Date.now()));
     row.inputs += 1;
     row.inTokens += r.inTokens || 0;
     row.outTokens += r.outTokens || 0;
     row.credits += r.credits || 0;
   }
+  // 消息级流水（msg-cost）：有些轮次只有流水、结算字段没落到 prompt，按天补上
+  for (const t of txns) {
+    if (t.kind !== 'msg-cost' || !t.ts) continue;
+    rowFor(keyOf(t.ts))._txn += Math.abs(t.amount || 0);
+  }
   // 余额差分（权威）：dom 快照每天"首余额 - 末余额" = 当天真实消耗
   const snaps = balances.filter((b) => b.kind === 'dom' && b.general != null && b.general > 0).sort((a, b) => a.ts - b.ts);
   const dayDiff = {};
   for (const b of snaps) {
-    const d = new Date(b.ts);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const key = keyOf(b.ts);
     const e = dayDiff[key] || (dayDiff[key] = { first: b.general, last: b.general });
     e.last = b.general;
   }
   for (const [key, e] of Object.entries(dayDiff)) {
     const d = e.first - e.last;
-    if (d > 0) {
-      const row = dayMap[key] || (dayMap[key] = { day: key, inputs: 0, inTokens: 0, outTokens: 0, credits: 0 });
-      row.credits = d;
-    }
+    if (d > 0) rowFor(key)._diff = d;
   }
-  return Object.values(dayMap).sort((a, b) => a.day.localeCompare(b.day));
+  // 结算字段与流水是同一笔钱的两种记法 → 取较大者，不能相加；有余额差分时直接采用差分
+  const rows = Object.values(dayMap);
+  for (const r of rows) {
+    if (r._diff != null) r.credits = r._diff;
+    else if (r._txn) r.credits = Math.max(r.credits, r._txn);
+    delete r._txn;
+    delete r._diff;
+  }
+  return rows.sort((a, b) => a.day.localeCompare(b.day));
 }
 
 async function queryCostSeries(hours) {
-  // 按小时聚合消耗曲线：最近 N 小时的余额差分（dom 快照"剩余通用积分"下降）→ 每小时消耗（对齐整点）
-  // 口径与 totals 一致：余额变化是权威，与页面余额变化绝对一致
+  // 按小时聚合消耗曲线（对齐整点）
+  // 主口径：dom 快照"剩余通用积分"的逐小时差分（与页面余额变化一致）
+  // 兜底：消息级流水 msg-cost —— 页面没渲染余额文本、或只抓到单个快照时，曲线不会整片空白
   const h = hours || 24;
-  const [balances] = await Promise.all([txGetAll('balances')]);
+  const [balances, txns] = await Promise.all([txGetAll('balances'), txGetAll('txns')]);
   const cutoff = Date.now() - h * 3600e3;
+
   const snaps = balances.filter((b) => b.kind === 'dom' && b.general != null && b.general > 0 && b.ts >= cutoff).sort((a, b) => a.ts - b.ts);
-  const buckets = new Map();
+  const bySnap = new Map();
   for (const b of snaps) {
     const bk = Math.floor(b.ts / 3600e3) * 3600e3;
-    const e = buckets.get(bk) || { first: b.general, last: b.general };
+    const e = bySnap.get(bk) || { first: b.general, last: b.general };
     e.last = b.general;
-    buckets.set(bk, e);
+    bySnap.set(bk, e);
   }
-  return Array.from(buckets.entries())
-    .map(([ts, e]) => ({ ts, amount: Math.max(0, e.first - e.last) }))
+
+  const byTxn = new Map();
+  for (const t of txns) {
+    if (t.kind !== 'msg-cost' || !t.ts || t.ts < cutoff) continue;
+    const bk = Math.floor(t.ts / 3600e3) * 3600e3;
+    byTxn.set(bk, (byTxn.get(bk) || 0) + Math.abs(t.amount || 0));
+  }
+
+  const keys = new Set([...bySnap.keys(), ...byTxn.keys()]);
+  return Array.from(keys)
+    .map((ts) => {
+      const e = bySnap.get(ts);
+      const snapAmount = e ? Math.max(0, e.first - e.last) : 0;
+      const txnAmount = byTxn.get(ts) || 0;
+      // 快照能算出来就用快照（权威），否则用流水，避免同一小时被叠加两次
+      return { ts, amount: snapAmount > 0 ? snapAmount : txnAmount };
+    })
     .filter((x) => x.amount > 0)
     .sort((a, b) => a.ts - b.ts);
 }
@@ -1561,24 +1630,47 @@ async function maybeNotifyDone(turnId) {
 
 
 async function queryByModel() {
-  const all = await txGetAll('txns');
+  const [all, prompts] = await Promise.all([txGetAll('txns'), txGetAll('prompts')]);
   const byM = {};
+  const rowFor = (m) => byM[m] || (byM[m] = { model: m, count: 0, spent: 0, projects: {} });
+
+  // 来源一：积分明细里自带模型名的扣费条目（最权威，但多数接口不带这个字段）
+  let fromTxns = 0;
   for (const t of all) {
     for (const it of (t.items || [])) {
       if (!it || !it.model) continue;
       const a = it.amount || 0;
-      // 只统计扣费记录（amount<0）：模型使用 = 次数 + 扣费积分。
-      // 发放（amount>0）是会员卡发积分，与模型使用无关，不计入。
+      // 只统计扣费（amount<0）：发放是会员卡送积分，与模型使用无关
       if (a >= 0) continue;
-      const row = byM[it.model] || (byM[it.model] = { model: it.model, count: 0, spent: 0, projects: {} });
+      fromTxns++;
+      const row = rowFor(it.model);
       row.count += 1;
       row.spent += Math.abs(a);
       if (it.projectName) row.projects[it.projectName] = 1;
     }
   }
+
+  // 来源二：每轮对话记录里的模型名（结算回包/请求体里带的那种）
+  // 明细已经给了模型就不再走这条，避免同一笔扣费被算两遍
+  if (!fromTxns) {
+    const seen = new Set();
+    for (const p of prompts) {
+      if (!p.model) continue;
+      const key = p.turnId || (p.chatId + '|' + p.ts);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const row = rowFor(p.model);
+      row.count += 1;
+      row.spent += Math.abs(Number(p.credits) || 0);
+      const pid = (p.chatId && chatProject[p.chatId]) || null;
+      const nm = pid ? (projectTitles[pid] || null) : null;
+      if (nm) row.projects[nm] = 1;
+    }
+  }
+
   return Object.values(byM)
     .map((r) => ({ model: r.model, count: r.count, spent: r.spent, projects: Object.keys(r.projects) }))
-    .sort((a, b) => b.spent - a.spent);
+    .sort((a, b) => b.spent - a.spent || b.count - a.count);
 }
 
 async function queryByProject() {
