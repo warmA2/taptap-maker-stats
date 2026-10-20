@@ -4,35 +4,149 @@
 <meta charset="UTF-8">
 <title>TapTap 制造统计 · 设置</title>
 <style>
-  body { font-family: "Microsoft YaHei", system-ui, sans-serif; margin: 0; background: #f6f8fb; color: #1f2937; padding: 24px; }
-  .wrap { max-width: 640px; margin: 0 auto; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 20px; }
-  h1 { font-size: 18px; margin: 0 0 16px; }
-  .row { margin-bottom: 16px; }
-  label { display: block; font-size: 14px; margin-bottom: 6px; font-weight: 600; }
-  input[type=number], input[type=text] { width: 220px; padding: 8px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; }
-  .hint { font-size: 12px; color: #6b7280; margin-top: 6px; line-height: 1.6; }
-  .save { background: #1d4ed8; color: #fff; border: 0; border-radius: 6px; padding: 10px 22px; font-size: 14px; cursor: pointer; }
-  .save:hover { background: #1e40af; }
-  .ok { color: #059669; font-size: 13px; margin-left: 12px; }
-  code { background: #f3f4f6; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
-  .proj-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
-  .proj-row .pid { color: #6b7280; font-size: 12px; flex: 1; word-break: break-all; }
-  .proj-row .auto { color: #059669; font-size: 12px; width: 110px; }
+  :root {
+    --ink: #0f172a; --ink-2: #475569; --ink-3: #8b99ad;
+    --line: #e6ebf3; --brand: #1d4ed8; --ok: #059669; --bad: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+    margin: 0; padding: 26px 20px 60px; background: #f2f5fa; color: var(--ink); font-size: 13px;
+  }
+  .wrap { max-width: 660px; margin: 0 auto; }
+  .page-h { margin: 0 0 16px; font-size: 17px; font-weight: 800; letter-spacing: .2px; }
+  .page-h .sub { display: block; font-size: 11px; color: var(--ink-3); font-weight: 400; margin-top: 4px; letter-spacing: 0; }
+
+  .card {
+    background: #fff; border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px 20px; margin-bottom: 14px; box-shadow: 0 1px 2px rgba(15,23,42,.04);
+  }
+  .card-h { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 800; margin-bottom: 4px; }
+  .card-h .tag {
+    font-size: 10px; font-weight: 600; color: #4338ca; background: #eef2ff;
+    border: 1px solid #dde4ff; border-radius: 999px; padding: 1px 8px;
+  }
+  .lead { font-size: 12px; color: var(--ink-3); line-height: 1.7; margin: 6px 0 14px; }
+
+  .row { margin-bottom: 14px; }
+  .row:last-child { margin-bottom: 0; }
+  .row > label.t { display: block; font-size: 12px; font-weight: 700; color: #27324d; margin-bottom: 6px; }
+  input[type=number], input[type=text], input[type=password] {
+    width: 100%; max-width: 360px; padding: 8px 10px; border: 1px solid #d7deea;
+    border-radius: 8px; font-size: 13px; font-family: inherit; background: #fbfcfe; color: var(--ink);
+  }
+  input:focus { outline: 2px solid #c7d2fe; outline-offset: 1px; border-color: #a5b4fc; }
+  .hint { font-size: 11px; color: var(--ink-3); line-height: 1.7; margin-top: 6px; }
+  .hint code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 11px; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    font-size: 12px; padding: 7px 13px; border-radius: 999px; cursor: pointer;
+    border: 1px solid #dbe3ef; background: #fff; color: var(--ink-2); user-select: none;
+    transition: all .15s;
+  }
+  .chip:hover { border-color: #b9c6dd; }
+  .chip.on { background: #1d4ed8; border-color: #1d4ed8; color: #fff; font-weight: 700; }
+
+  .check {
+    display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #27324d;
+    padding: 7px 0; cursor: pointer;
+  }
+  .check input[type=checkbox] { width: 15px; height: 15px; accent-color: #1d4ed8; flex: none; }
+  .check input[type=number] { width: 72px; padding: 4px 6px; }
+
+  .actions { display: flex; align-items: center; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+  button { font-family: inherit; border-radius: 8px; cursor: pointer; font-size: 13px; }
+  .primary { background: #1d4ed8; color: #fff; border: 0; padding: 10px 20px; font-weight: 600; }
+  .primary:hover { background: #1e40af; }
+  .plain { background: #fff; color: #1d4ed8; border: 1px solid #c7d2fe; padding: 9px 16px; }
+  .plain:hover { background: #f5f7ff; }
+  .msg { font-size: 12px; }
+  .msg.ok { color: var(--ok); }
+  .msg.bad { color: var(--bad); }
+
+  .ch-block { display: none; }
+  .ch-block.on { display: block; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>TapTap 制造统计 · 设置</h1>
-  <div class="row">
-    <label>1 Token 折算积分倍率</label>
-    <input type="number" id="token-rate" min="0.001" step="0.001" value="1">
-    <div class="hint">
-      扩展从请求响应里直接抓"积分"字段（若能抓到会优先使用实际值）；<br>
-      抓不到时按 <code>输入Tokens + 输出Tokens × 倍率</code> 估算。<br>
-      默认 1（1 Token ≈ 1 积分）。你可以对照"我的积分"页面的实际扣减来校准这个倍率。
+  <h1 class="page-h">TapTap 制造统计 · 设置<span class="sub">全部配置只存在本机浏览器，不上传到任何服务器</span></h1>
+
+  <div class="card">
+    <div class="card-h">完成通知<span class="tag">推送到手机</span></div>
+    <div class="lead">
+      一轮对话跑完时把结果推到手机 —— 人不在电脑前也能知道它跑完了。<br>
+      扩展直接请求你自己填的服务，没有中间服务器，也不收集任何账号信息。
+    </div>
+
+    <div class="row">
+      <label class="check"><input type="checkbox" id="notify-enabled"> 启用完成通知</label>
+    </div>
+
+    <div class="row">
+      <label class="t">通道</label>
+      <div class="chips" id="chips">
+        <span class="chip" data-ch="ntfy">ntfy · 安卓 / iPhone</span>
+        <span class="chip" data-ch="bark">Bark · 仅 iPhone</span>
+        <span class="chip" data-ch="webhook">自定义 Webhook</span>
+      </div>
+    </div>
+
+    <div class="row ch-block" data-for="ntfy">
+      <label class="t">ntfy topic</label>
+      <input type="text" id="ntfy-topic" placeholder="例如 taptap-maker-a7f3k9" autocomplete="off">
+      <div class="hint">
+        手机装 <b>ntfy</b>（App Store / Google Play / F-Droid 都有）→ 点「订阅 topic」→ 填同一个字符串。<br>
+        topic 相当于密码，起个别人猜不到的；公共服务器上知道 topic 的人就能收到消息。
+      </div>
+    </div>
+
+    <div class="row ch-block" data-for="ntfy">
+      <label class="t">ntfy 服务器</label>
+      <input type="text" id="ntfy-server" placeholder="https://ntfy.sh" autocomplete="off">
+      <div class="hint">用公共服务器留空即可；自建服务器填自己的地址，保存时会额外申请该域名的访问权限。</div>
+    </div>
+
+    <div class="row ch-block" data-for="bark">
+      <label class="t">Bark Key</label>
+      <input type="text" id="bark-key" placeholder="例如 AbCdEf123456 或 https://api.day.app/AbCdEf123456" autocomplete="off">
+      <div class="hint">iPhone 装 <b>Bark</b> → 首页复制那串 key 粘进来。自建 Bark 服务端可以直接填完整地址。</div>
+    </div>
+
+    <div class="row ch-block" data-for="webhook">
+      <label class="t">Webhook 地址</label>
+      <input type="text" id="webhook-url" placeholder="https://…" autocomplete="off">
+      <div class="hint">
+        任意能收 JSON POST 的地址，例如 Server 酱、飞书 / 企业微信机器人、自建转发。<br>
+        发送字段：<code>title</code>、<code>body</code>、<code>text</code>、<code>content.text</code>（兼容常见机器人格式）。
+      </div>
+    </div>
+
+    <div class="row">
+      <label class="t">触发条件</label>
+      <label class="check"><input type="checkbox" id="notify-only-away"> 只在 maker 页面不在前台时推送（人就在电脑前就不打扰）</label>
+      <label class="check">任务短于 <input type="number" id="notify-min-sec" min="0" step="5" value="20"> 秒不推送（避免每句闲聊都响）</label>
+    </div>
+
+    <div class="actions">
+      <button class="primary" id="save">保存</button>
+      <button class="plain" id="test">发送测试通知</button>
+      <span class="msg" id="msg"></span>
     </div>
   </div>
-  <button class="save" id="save">保存</button><span class="ok" id="ok"></span>
+
+  <div class="card">
+    <div class="card-h">积分折算<span class="tag">校准</span></div>
+    <div class="row">
+      <label class="t">1 Token 折算积分倍率</label>
+      <input type="number" id="token-rate" min="0.001" step="0.001" value="1">
+      <div class="hint">
+        请求响应里能直接抓到积分字段时优先用实测值；抓不到时按 <code>(输入 Tokens + 输出 Tokens) × 倍率</code> 估算。<br>
+        默认 1。可以对照「我的积分」页面的实际扣减来校准。
+      </div>
+    </div>
+  </div>
 </div>
 <script src="options.js"></script>
 </body>

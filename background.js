@@ -647,7 +647,8 @@ function onWsMessage(data) {
     if (turnId != null) {
       return txGet('prompts', turnId).then((row) => {
         if (!row) return;
-        return txPut('prompts', { ...row, done: true, endedTs: data.ts || Date.now() });
+        return txPut('prompts', { ...row, done: true, endedTs: data.ts || Date.now() })
+          .then(() => maybeNotifyDone(turnId));
       });
     }
   }
@@ -697,6 +698,8 @@ function onTurnCredits({ msg, credits, data }) {
         return updateLatestPrompt({ credits: consumed }, String(turnId), now, cid);
       })
     : updateLatestPrompt({ credits: consumed }, null, now, cid)).catch(() => {});
+  // 结算落地 ⇒ 这一轮基本结束，补一次完成通知（与 prompt/stopped 共用去重集合）
+  if (turnId) patchPrompt.then(() => maybeNotifyDone(turnId)).catch(() => {});
   return Promise.all([putCost, patchPrompt]).then(() => undefined).catch(() => undefined);
 }
 
@@ -1218,6 +1221,159 @@ async function querySessions() {
   return { runningTotal, staleTotal, activeCount: active.length, active, sessions: sessions.slice(0, 10) };
 }
 
+/* ---------------- 完成通知：一轮跑完推送到手机 ---------------- */
+// 三种通道都由扩展直接请求用户自己填的服务，没有中间服务器，也没有账号体系：
+//   ntfy   —— 手机装 App 订阅一个 topic，扩展 POST 到 ntfy 服务器
+//   bark   —— iPhone 装 Bark，扩展 POST 到 api.day.app/<key>
+//   webhook —— 任意能收 JSON POST 的地址（Server酱 / 飞书 / 企微机器人 / 自建）
+const NOTIFY_DEFAULTS = {
+  notifyEnabled: false,
+  notifyChannel: 'ntfy',        // ntfy | bark | webhook
+  notifyNtfyServer: 'https://ntfy.sh',
+  notifyNtfyTopic: '',
+  notifyBarkKey: '',
+  notifyWebhook: '',
+  notifyOnlyAway: true,         // 只在 maker 页面不在前台时推，避免人就在电脑前还响
+  notifyMinSec: 20,             // 一轮短于这个秒数就不推，免得每句闲聊都弹
+};
+
+function getNotifyCfg() {
+  return new Promise((resolve) => {
+    try { chrome.storage.sync.get(NOTIFY_DEFAULTS, (cfg) => resolve({ ...NOTIFY_DEFAULTS, ...cfg })); }
+    catch (e) { resolve({ ...NOTIFY_DEFAULTS }); }
+  });
+}
+
+// 去重：同一轮只推一次（stopped 和结算回包都可能触发）。
+// service worker 会被回收，所以集合要落盘，只留最近 200 条。
+const _notified = new Set();
+let _notifiedLoaded = false;
+function loadNotified() {
+  if (_notifiedLoaded) return Promise.resolve();
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.local.get({ notifiedIds: [] }, (o) => {
+        for (const id of (o.notifiedIds || [])) _notified.add(String(id));
+        _notifiedLoaded = true;
+        resolve();
+      });
+    } catch (e) { _notifiedLoaded = true; resolve(); }
+  });
+}
+function saveNotified() {
+  try { chrome.storage.local.set({ notifiedIds: Array.from(_notified).slice(-200) }); } catch (e) {}
+}
+
+function fmtNotifyDur(ms) {
+  if (ms == null || !isFinite(ms) || ms < 0) return '—';
+  const s = Math.round(ms / 1000);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  if (h > 0) return `${h} 小时 ${m} 分`;
+  if (m > 0) return `${m} 分 ${sec} 秒`;
+  return `${sec} 秒`;
+}
+
+// 人是否不在 maker 页面（浏览器窗口没聚焦，或聚焦的不是 maker 标签页）
+async function isAwayFromMaker() {
+  try {
+    const win = await chrome.windows.getLastFocused({ populate: false });
+    if (!win || !win.focused) return true;
+    const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    const tab = tabs && tabs[0];
+    if (!tab || !tab.url) return true;
+    return !tab.url.startsWith('https://maker.taptap.cn');
+  } catch (e) {
+    return true; // 查不到就当作不在，宁可多推
+  }
+}
+
+function buildNotifyMsg(row, chatTitle) {
+  const pid = row.chatId ? (chatProject[row.chatId] || null) : null;
+  const proj = pid ? (projectTitles[pid] || null) : null;
+  const head = [proj, chatTitle].filter(Boolean).join(' · ') || 'TapTap 制造';
+  const dur = row.endedTs && row.ts ? (row.endedTs - row.ts) : null;
+  const spent = (row.credits != null && row.credits > 0) ? row.credits : null;
+  const meta = ['耗时 ' + fmtNotifyDur(dur)];
+  if (spent != null) meta.push(`消耗 ${spent} 积分`);
+  if (row.outTokens != null) meta.push(`${row.outTokens} tokens`);
+  const lines = [head, meta.join(' · ')];
+  const txt = String(row.text || '').replace(/\s+/g, ' ').trim();
+  if (txt) lines.push('「' + txt.slice(0, 60) + (txt.length > 60 ? '…' : '') + '」');
+  return { title: 'TapTap 制造 · 任务完成', body: lines.join('\n') };
+}
+
+async function sendNotify(cfg, msg) {
+  const ch = cfg.notifyChannel;
+  if (ch === 'ntfy') {
+    const topic = String(cfg.notifyNtfyTopic || '').trim();
+    if (!topic) throw new Error('没填 ntfy topic');
+    const server = String(cfg.notifyNtfyServer || 'https://ntfy.sh').trim().replace(/\/+$/, '');
+    const res = await fetch(server, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      // 走 JSON publish：标题/正文是中文，用 header 传会撞 ByteString 限制
+      body: JSON.stringify({ topic, title: msg.title, message: msg.body, priority: 3, tags: ['white_check_mark'] }),
+    });
+    if (!res.ok) throw new Error('ntfy 返回 ' + res.status);
+    return;
+  }
+  if (ch === 'bark') {
+    const key = String(cfg.notifyBarkKey || '').trim();
+    if (!key) throw new Error('没填 Bark key');
+    const base = /^https?:\/\//i.test(key) ? key.replace(/\/+$/, '') : ('https://api.day.app/' + key);
+    const res = await fetch(base, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: msg.title, body: msg.body, group: 'TapTap制造', sound: 'bell', isArchive: 1 }),
+    });
+    if (!res.ok) throw new Error('Bark 返回 ' + res.status);
+    return;
+  }
+  const url = String(cfg.notifyWebhook || '').trim();
+  if (!url) throw new Error('没填 Webhook 地址');
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: msg.title, body: msg.body, text: msg.title + '\n' + msg.body,
+      msgtype: 'text', content: { text: msg.title + '\n' + msg.body }, // 兼容飞书/企微的字段形态
+      source: 'taptap-maker-stats',
+    }),
+  });
+  if (!res.ok) throw new Error('Webhook 返回 ' + res.status);
+}
+
+// 一轮结束时调用。延迟 900ms 再读记录：结算/用量回包常在结束信号之后落地，
+// 等一下通知里才能带上真实积分。
+async function maybeNotifyDone(turnId) {
+  if (turnId == null) return;
+  const cfg = await getNotifyCfg();
+  if (!cfg.notifyEnabled) return;
+  await loadNotified();
+  const id = String(turnId);
+  if (_notified.has(id)) return;
+  _notified.add(id);
+  saveNotified();
+  await new Promise((r) => setTimeout(r, 900));
+  let row = null;
+  try { row = await txGet('prompts', turnId); } catch (e) { return; }
+  if (!row) return;
+  const minMs = Math.max(0, Number(cfg.notifyMinSec) || 0) * 1000;
+  if (minMs && row.ts && (Date.now() - row.ts) < minMs) return;
+  if (cfg.notifyOnlyAway && !(await isAwayFromMaker())) return;
+  let chatTitle = '';
+  try { const c = await txGet('chats', row.chatId); chatTitle = (c && c.title) || ''; } catch (e) {}
+  const msg = buildNotifyMsg(row, chatTitle);
+  try {
+    await sendNotify(cfg, msg);
+    saveRaw({ ts: Date.now(), note: 'notify-sent', json: { channel: cfg.notifyChannel, turnId: String(turnId) } });
+  } catch (e) {
+    console.warn('[tt-stats] notify failed', e);
+    saveRaw({ ts: Date.now(), note: 'notify-failed', json: { channel: cfg.notifyChannel, error: String(e && e.message || e) } });
+  }
+}
+
+
 async function queryByModel() {
   const all = await txGetAll('txns');
   const byM = {};
@@ -1445,6 +1601,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     ingest(msg.type, msg.data);
     sendResponse({ ok: true });
     return;
+  }
+  if (msg.kind === 'notifyTest') {
+    // 设置页「发送测试通知」：用当前配置真发一条，把失败原因原样返回
+    getNotifyCfg().then(async (cfg) => {
+      if (!cfg.notifyEnabled) { sendResponse({ ok: false, error: '先勾选「启用完成通知」并保存' }); return; }
+      try {
+        await sendNotify(cfg, {
+          title: 'TapTap 制造 · 测试通知',
+          body: '看到这条说明通道已经配好了。\n这是一条测试消息，不影响任何统计。',
+        });
+        sendResponse({ ok: true });
+      } catch (e) {
+        sendResponse({ ok: false, error: String((e && e.message) || e) });
+      }
+    });
+    return true;
   }
   if (msg.kind === 'export') {
     // 收集诊断数据返回给侧边栏（侧边栏负责创建 blob 下载；SW 无 URL.createObjectURL）

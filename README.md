@@ -3,7 +3,7 @@
 > 记录你在 [TapTap 制造](https://maker.taptap.cn/) 的**每一次输入**，按**会话**和**项目**统计 token 与积分消耗，侧边栏常驻显示**当前登录用户的各项积分余额**。
 > 一个纯本地的浏览器扩展 —— 数据只存在你自己的浏览器里，不上传任何服务器。
 
-![version](https://img.shields.io/badge/version-0.9.48-blue)
+![version](https://img.shields.io/badge/version-0.9.49-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/Chrome%20%2F%20Edge-114%2B-lightgrey)
 ![manifest](https://img.shields.io/badge/Manifest-V3-orange)
@@ -48,6 +48,7 @@
 
 **其他**
 
+- **完成通知**：一轮跑完可推送到手机（ntfy / Bark / 自定义 Webhook），见下文
 - 1 Token → 积分 的折算倍率可在设置页校准
 - 支持导出诊断 JSON（手动触发）
 - 全程只读页面数据，**不修改页面任何行为**
@@ -82,9 +83,42 @@ git clone https://github.com/warmA2/taptap-maker-stats.git
 2. **点工具栏扩展图标** → 统计面板常驻浏览器右侧边栏，切换标签页也一直存在，每 10 秒自动刷新。
 3. 顶部「我的积分」实时显示各项余额；点「我的积分页 ↗」跳官方明细页。
 4. 点「完整版 ↗」打开 Dashboard 看趋势、排行、明细。
-5. 右键图标 →「选项」可配置积分折算倍率。
+5. 右键图标 →「选项」可配置**完成通知**（跑完推手机）和积分折算倍率。
 
 > 侧边栏显示「未注入」时：确认扩展已加载 → `chrome://extensions` 点「重新加载」→ **刷新 maker.taptap.cn 页面**。升级扩展后这两步都要做一遍。
+
+---
+
+## 完成通知（跑完推手机）
+
+长任务跑完不用守在电脑前。右键扩展图标 →「选项」→「完成通知」，选通道、填参数，点 **发送测试通知** 验证能不能收到。
+
+| 通道 | 适合 | 需要填什么 |
+|---|---|---|
+| **ntfy** | 安卓 / iPhone，免注册免账号 | 一个 topic 字符串。手机装 ntfy → 「订阅 topic」→ 填同一个串 |
+| **Bark** | 仅 iPhone，最省事 | App 首页那串 key（自建服务端可直接填完整 URL） |
+| **自定义 Webhook** | Server 酱 / 飞书 / 企业微信机器人 / 自建转发 | 任意能收 JSON POST 的地址 |
+
+推送内容长这样：
+
+```
+TapTap 制造 · 任务完成
+示例项目 · 示例会话
+耗时 2 分 18 秒 · 消耗 12 积分
+「帮我把这一段的内容调整一下…」
+```
+
+两个条件开关（都在设置页）：
+
+- **只在 maker 页面不在前台时推送** —— 默认开。人就在电脑前、页面还开着，就不响。
+- **任务短于 N 秒不推送** —— 默认 20 秒，免得每句闲聊都弹一次。
+
+补充说明：
+
+- 同一轮只推一次（结束信号和结算回包都会触发，内部按 turnId 去重）。
+- 通知里的积分是**延迟 0.9 秒**再读的 —— 等结算数据落地，数字才准。
+- 扩展直接 POST 到你填的服务，**没有中间服务器**，也不上传任何账号信息。ntfy 公共服务器上看得到 topic 的人就能收到，所以 topic 起个猜不到的。
+- 填了 ntfy.sh / api.day.app 以外的域名，保存时会额外申请该域名的访问权限（浏览器弹窗，你同意才生效）。
 
 ---
 
@@ -111,16 +145,18 @@ git clone https://github.com/warmA2/taptap-maker-stats.git
 ## 数据与隐私
 
 - 所有数据保存在**本机**：IndexedDB 库 `tt-maker-stats`，另用 `chrome.storage.local` 存少量运行状态。
-- **不上传、不埋点、不做任何网络外发**。没有任何第三方服务器参与。
+- **默认零外发**：不埋点、不统计、不连任何服务器。唯一的例外是你主动启用的「完成通知」—— 它只把这一条通知内容 POST 到你指定的推送地址，其余统计明细一律不出本机。
 - 权限用得很少，且都与功能一一对应：
 
 | 权限 | 用途 |
 |---|---|
-| `storage` | 存储运行状态 |
+| `storage` | 存储运行状态与设置 |
 | `sidePanel` | 常驻右侧边栏 |
 | `scripting` | 向 maker.taptap.cn 注入捕获脚本 |
 | `downloads` | 仅在你点「导出诊断」时下载 JSON |
 | `host_permissions: https://maker.taptap.cn/*` | 仅在该域名下读取积分与消息 |
+| `host_permissions: https://ntfy.sh/*`、`https://api.day.app/*` | 仅在你启用完成通知并选了对应通道时，往这两个推送服务发一条消息 |
+| `optional_host_permissions` | 你自己填的 Webhook / 自建服务器域名，保存时才弹窗申请，你拒绝就发不出去 |
 
 **数据表结构**（IndexedDB `tt-maker-stats`，v2）
 
@@ -151,6 +187,9 @@ git clone https://github.com/warmA2/taptap-maker-stats.git
 **某个会话明明在跑，为什么没出现在「正在处理」里？**
 判定看的是**这一轮有没有动静**：发出请求后，只要还在收流式片段就算在处理。如果超过 3 分钟没有任何输出，就当作已中断（刷新页面、关标签、断网都会留下这种半截轮次）——它会归到下方「进行中 & 会话耗时」里，标注为未收到结束信号，不再占用顶部位置。
 
+**配了完成通知，手机没收到？**
+先点设置页的「发送测试通知」，它会用当前配置真发一条并把错误原因直接显示出来。常见原因：topic / key 填错、任务跑得比「最短时长」还短（默认 20 秒内不推）、maker 页面还开在前台（默认不打扰）、手机端 App 没允许通知权限。发送记录可以在 Dashboard 调试面板里搜 `notify-` 查看。
+
 **平台改版抓不到了？**
 打开 Dashboard 底部调试面板，导出诊断 JSON 提 issue —— 里面是原始事件，足够定位解析规则要改哪里。
 
@@ -168,7 +207,7 @@ git clone https://github.com/warmA2/taptap-maker-stats.git
 ├── sidepanel.js
 ├── dashboard.html     # 完整数据看板
 ├── dashboard.js
-├── options.html       # 设置页（积分倍率）
+├── options.html       # 设置页（完成通知 / 积分倍率）
 ├── options.js
 └── icons/             # 16 / 32 / 48 / 128
 ```
