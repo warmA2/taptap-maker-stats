@@ -3,7 +3,7 @@
 > 记录你在 [TapTap 制造](https://maker.taptap.cn/) 的**每一次输入**，按**会话**和**项目**统计 token 与积分消耗，侧边栏常驻显示**当前登录用户的各项积分余额**。
 > 一个纯本地的浏览器扩展 —— 数据只存在你自己的浏览器里，不上传任何服务器。
 
-![version](https://img.shields.io/badge/version-0.9.58-blue)
+![version](https://img.shields.io/badge/version-0.9.59-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/Chrome%20%2F%20Edge-114%2B-lightgrey)
 ![manifest](https://img.shields.io/badge/Manifest-V3-orange)
@@ -35,9 +35,9 @@
 | 今日概览 | 今日消耗、输入次数、按小时消耗曲线 |
 | 消息归因 | 每条消息旁标注「消耗 X 积分 · 剩余 Y 通用积分」 |
 | 设置 | **置顶第一张卡片**，点标题就地展开：完成通知（通道 / 地址 / 触发条件）在这改，保存即时生效。不用打开扩展设置页 |
-| 完整版入口 | 一键打开完整 Dashboard |
+| 详细数据入口 | 一键打开 Dashboard（趋势、排行、明细） |
 
-**完整 Dashboard**
+**Dashboard（点侧边栏右上角「详细数据 ↗」打开）**
 
 - 按日趋势（消耗 / 输入次数）
 - 按会话排行 —— 以项目维度对比积分消耗
@@ -83,7 +83,7 @@ git clone https://github.com/warmA2/taptap-maker-stats.git
    **装好扩展后必须刷新一次页面** —— 注入只在页面加载时发生（侧边栏顶部会显示「已注入页面」）。
 2. **点工具栏扩展图标** → 统计面板常驻浏览器右侧边栏，切换标签页也一直存在，每 10 秒自动刷新。
 3. 顶部「我的积分」实时显示各项余额；点「我的积分页 ↗」跳官方明细页。
-4. 点「完整版 ↗」打开 Dashboard 看趋势、排行、明细。
+4. 点右上角「详细数据 ↗」打开 Dashboard 看趋势、排行、明细。
 5. **设置就在侧边栏顶部** —— 打开侧边栏第一张卡片就是「设置」，点标题就地展开，改完成通知。不用打开扩展设置页，也不用往下翻。
 
 > 侧边栏显示「未注入」时：确认扩展已加载 → `chrome://extensions` 点「重新加载」→ **刷新 maker.taptap.cn 页面**。升级扩展后这两步都要做一遍。
@@ -236,7 +236,7 @@ TapTap 制造 · 任务完成
 ├── background.js      # Service Worker：解析、入库（IndexedDB）、聚合查询
 ├── sidepanel.html     # 侧边栏 UI
 ├── sidepanel.js
-├── dashboard.html     # 完整数据看板
+├── dashboard.html     # 数据看板
 ├── dashboard.js
 ├── options.html       # 设置页（完成通知）
 ├── options.js

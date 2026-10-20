@@ -229,7 +229,7 @@ function collectSettings() {
   };
 }
 
-// 自定义地址需要域名权限。侧边栏里申请偶尔会因丢失用户手势失败，失败就引导去完整设置页。
+// 自定义地址需要域名权限。侧边栏里申请偶尔会因丢失用户手势失败，失败就引导去扩展设置页。
 async function ensureSidebarOrigins(cfg) {
   const need = new Set();
   if (cfg.notifyChannel === 'webhook' && cfg.notifyWebhook) {
@@ -249,7 +249,7 @@ async function saveSettings(silent) {
   const cfg = collectSettings();
   const ok = await ensureSidebarOrigins(cfg);
   if (!ok) {
-    setMsg('这个域名要在完整设置页授权一次', false);
+    setMsg('这个域名要在扩展设置页授权一次', false);
     return null;
   }
   await new Promise((r) => chrome.storage.sync.set(cfg, r));
