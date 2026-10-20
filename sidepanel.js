@@ -174,6 +174,173 @@ function fmtDur(ms) {
   return `${sec}秒`;
 }
 
+/* ---------------- 侧边栏内设置（完成通知 / 积分倍率） ----------------
+   表单直接住在侧边栏里，不用跳去扩展设置页；两处共用 chrome.storage.sync 同一份配置。 */
+const SET_DEFAULTS = {
+  tokenRate: 1,
+  notifyEnabled: false,
+  notifyChannel: 'ntfy',
+  notifyNtfyServer: 'https://ntfy.sh',
+  notifyNtfyTopic: '',
+  notifyBarkKey: '',
+  notifyWebhook: '',
+  notifyFeishuSecret: '',
+  notifyOnlyAway: true,
+  notifyMinSec: 20,
+};
+let _setChannel = 'ntfy';
+let _setCfg = null;
+
+function setMsg(text, ok) {
+  const el = $('sp-msg');
+  if (!el) return;
+  el.textContent = text;
+  el.className = 'set-msg ' + (ok ? 'ok' : 'bad');
+  if (ok) setTimeout(() => { if (el.textContent === text) el.textContent = ''; }, 2600);
+}
+
+function setChannelUI(ch) {
+  _setChannel = ch;
+  document.querySelectorAll('#sp-chips .chip').forEach((el) => el.classList.toggle('on', el.dataset.ch === ch));
+  document.querySelectorAll('#set-body .ch-block').forEach((el) => el.classList.toggle('on', el.dataset.for === ch));
+}
+
+function updateSetSummary(cfg) {
+  const el = $('set-summary'), body = $('set-body');
+  if (!el) return;
+  if (body && !body.hidden) { el.textContent = '收起'; return; }
+  const t = cfg || _setCfg || SET_DEFAULTS;
+  if (!t.notifyEnabled) { el.textContent = '通知未开启'; return; }
+  const name = { ntfy: 'ntfy', bark: 'Bark', webhook: 'Webhook' }[t.notifyChannel] || t.notifyChannel;
+  el.textContent = '通知已开启 · ' + name;
+}
+
+function collectSettings() {
+  const rate = parseFloat($('sp-token-rate').value);
+  return {
+    tokenRate: (rate > 0 ? rate : 1),
+    notifyEnabled: $('sp-notify-enabled').checked,
+    notifyChannel: _setChannel,
+    // 侧边栏不提供「自建 ntfy 服务器」入口，沿用已有配置，避免把用户填过的地址覆盖掉
+    notifyNtfyServer: (_setCfg && _setCfg.notifyNtfyServer) || 'https://ntfy.sh',
+    notifyNtfyTopic: ($('sp-ntfy-topic').value || '').trim(),
+    notifyBarkKey: ($('sp-bark-key').value || '').trim(),
+    notifyWebhook: ($('sp-webhook').value || '').trim(),
+    notifyFeishuSecret: ($('sp-feishu-secret').value || '').trim(),
+    notifyOnlyAway: $('sp-only-away').checked,
+    notifyMinSec: Math.max(0, parseInt($('sp-min-sec').value, 10) || 0),
+  };
+}
+
+// 自定义地址需要域名权限。侧边栏里申请偶尔会因丢失用户手势失败，失败就引导去完整设置页。
+async function ensureSidebarOrigins(cfg) {
+  const need = new Set();
+  if (cfg.notifyChannel === 'webhook' && cfg.notifyWebhook) {
+    try { need.add(new URL(cfg.notifyWebhook).origin + '/*'); } catch (e) { /* URL 不合法，交给发送时报错 */ }
+  } else if (cfg.notifyChannel === 'bark' && /^https?:\/\//i.test(cfg.notifyBarkKey)) {
+    try {
+      const o = new URL(cfg.notifyBarkKey).origin;
+      if (o !== 'https://api.day.app') need.add(o + '/*');
+    } catch (e) { /* ignore */ }
+  }
+  if (!need.size) return true;
+  try { return await chrome.permissions.request({ origins: Array.from(need) }); }
+  catch (e) { return false; }
+}
+
+async function saveSettings(silent) {
+  const cfg = collectSettings();
+  const ok = await ensureSidebarOrigins(cfg);
+  if (!ok) {
+    setMsg('这个域名要在完整设置页授权一次', false);
+    return null;
+  }
+  await new Promise((r) => chrome.storage.sync.set(cfg, r));
+  _setCfg = cfg;
+  updateSetSummary(cfg);
+  if (!silent) setMsg('已保存', true);
+  return cfg;
+}
+
+async function testNotify() {
+  setMsg('发送中…', true);
+  const cfg = await saveSettings(true);
+  if (!cfg) return;
+  if (!cfg.notifyEnabled) { setMsg('先勾选「启用完成通知」', false); return; }
+  const filled = _setChannel === 'ntfy' ? !!cfg.notifyNtfyTopic
+    : _setChannel === 'bark' ? !!cfg.notifyBarkKey
+    : !!cfg.notifyWebhook;
+  if (!filled) { setMsg('当前通道的必填项还没填', false); return; }
+  chrome.runtime.sendMessage({ kind: 'notifyTest' }, (res) => {
+    if (chrome.runtime.lastError) { setMsg('后台没响应，刷新页面再试', false); return; }
+    if (res && res.ok) setMsg('测试已发出，看看手机', true);
+    else setMsg('失败：' + ((res && res.error) || '未知原因'), false);
+  });
+}
+
+function initSettings() {
+  const toggle = $('set-toggle'), body = $('set-body');
+  if (!toggle || !body) return;
+
+  chrome.storage.sync.get(SET_DEFAULTS, (cfg) => {
+    _setCfg = cfg;
+    $('sp-notify-enabled').checked = !!cfg.notifyEnabled;
+    $('sp-ntfy-topic').value = cfg.notifyNtfyTopic || '';
+    $('sp-bark-key').value = cfg.notifyBarkKey || '';
+    $('sp-webhook').value = cfg.notifyWebhook || '';
+    $('sp-feishu-secret').value = cfg.notifyFeishuSecret || '';
+    $('sp-only-away').checked = !!cfg.notifyOnlyAway;
+    $('sp-min-sec').value = cfg.notifyMinSec;
+    $('sp-token-rate').value = cfg.tokenRate;
+    setChannelUI(cfg.notifyChannel || 'ntfy');
+    updateSetSummary(cfg);
+  });
+
+  // 展开状态记在本机，下次打开侧边栏保持一致
+  try {
+    chrome.storage.local.get({ sidebarSettingsOpen: false }, (o) => {
+      if (o && o.sidebarSettingsOpen) {
+        body.hidden = false;
+        toggle.setAttribute('aria-expanded', 'true');
+        updateSetSummary();
+      }
+    });
+  } catch (e) { /* ignore */ }
+
+  const toggleFn = () => {
+    body.hidden = !body.hidden;
+    toggle.setAttribute('aria-expanded', String(!body.hidden));
+    try { chrome.storage.local.set({ sidebarSettingsOpen: !body.hidden }); } catch (e) { /* ignore */ }
+    updateSetSummary();
+  };
+  toggle.addEventListener('click', toggleFn);
+  toggle.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleFn(); }
+  });
+
+  // 头部「设置」链接：展开并滚过去，省得从顶部一直滚到底
+  const headLink = $('brand-settings');
+  if (headLink) {
+    headLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (body.hidden) toggleFn();
+      const panel = $('set-panel');
+      if (panel && panel.scrollIntoView) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
+  document.querySelectorAll('#sp-chips .chip').forEach((el) => {
+    el.addEventListener('click', () => setChannelUI(el.dataset.ch));
+  });
+  $('sp-notify-enabled').addEventListener('change', () => updateSetSummary());
+  $('sp-save').addEventListener('click', () => { saveSettings(false); });
+  $('sp-test').addEventListener('click', () => { testNotify(); });
+  $('sp-open-options').addEventListener('click', (e) => {
+    e.preventDefault();
+    try { chrome.runtime.openOptionsPage(); } catch (err) { /* ignore */ }
+  });
+}
+
 // 顶部「正在处理」：只列真的有消息在跑（未结束 + 近 3 分钟有流式活动）的会话，
 // 不是"最近打开过的项目"。没有正在处理的会话时整块收起，不占位置。
 let _actTimer = null; // 时长秒级跳动
@@ -819,6 +986,7 @@ refreshCredits();
 refreshCapture();
 renderSessions();
 refreshCharts();
+initSettings();
 // 分级刷新：10 秒刷实时项（状态/积分/最近消息/今日概览），5 秒刷「正在处理」，
 // 30 秒刷统计图表——不做全量刷新
 setInterval(() => { refresh(); refreshInjectStatus(); refreshCredits(); refreshCapture(); }, 10000);
