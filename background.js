@@ -1054,14 +1054,9 @@ function saveRaw(entry) {
 }
 
 /* ---------------- 查询 ---------------- */
-async function getRate() {
-  const cfg = await chrome.storage.sync.get({ tokenRate: 1 });
-  return (cfg.tokenRate > 0) ? cfg.tokenRate : 1;
-}
-
 async function queryTotals() {
-  const [prompts, chats, balances, ctx, txns, rate] = await Promise.all([
-    txGetAll('prompts'), txGetAll('chats'), txGetAll('balances'), txGetAll('ctx'), txGetAll('txns'), getRate(),
+  const [prompts, chats, balances, ctx, txns] = await Promise.all([
+    txGetAll('prompts'), txGetAll('chats'), txGetAll('balances'), txGetAll('ctx'), txGetAll('txns'),
   ]);
   const now = Date.now();
   const dayStart = new Date(now); dayStart.setHours(0, 0, 0, 0);
@@ -1086,9 +1081,8 @@ async function queryTotals() {
       inputs: rows.length,
       outChars: sumBy(rows, (r) => (r.outText || '').length),
       inTokens, outTokens,
-      // 余额差分优先（与页面一致）；无差分数据时回退消息级解析（旧数据兼容）
+      // 只认真实积分：余额差分优先（与页面一致）；无差分数据时回退消息级解析（旧数据兼容）
       credits: diff != null ? diff : (sumBy(rows, (r) => r.credits || 0) + costSum(crows)),
-      estCredits: Math.round((inTokens + outTokens) * rate),
     };
   };
   const balanceDelta = snaps.length >= 2 ? Math.max(0, snaps[0].general - snaps[snaps.length - 1].general) : null;
@@ -1104,7 +1098,7 @@ async function queryTotals() {
 }
 
 async function queryByChat() {
-  const [prompts, chats, txns, rate] = await Promise.all([txGetAll('prompts'), txGetAll('chats'), txGetAll('txns'), getRate()]);
+  const [prompts, chats, txns] = await Promise.all([txGetAll('prompts'), txGetAll('chats'), txGetAll('txns')]);
   const titleMap = {};
   for (const c of chats) titleMap[c.id] = c.title || '未命名会话';
   const byChat = {};
@@ -1113,14 +1107,13 @@ async function queryByChat() {
     const row = byChat[key] || (byChat[key] = {
       chatId: key,
       title: titleMap[key] || '未命名会话',
-      inputs: 0, outChars: 0, inTokens: 0, outTokens: 0, credits: 0, estCredits: 0, lastTs: 0,
+      inputs: 0, outChars: 0, inTokens: 0, outTokens: 0, credits: 0, lastTs: 0,
     });
     row.inputs += 1;
     row.outChars += (r.outText || '').length;
     row.inTokens += r.inTokens || 0;
     row.outTokens += r.outTokens || 0;
     row.credits += r.credits || 0;
-    row.estCredits += Math.round(((r.inTokens || 0) + (r.outTokens || 0)) * rate);
     if (r.ts > row.lastTs) row.lastTs = r.ts;
   }
   // 合并消息级消耗流水（按会话归集）——真实扣费
@@ -1129,7 +1122,7 @@ async function queryByChat() {
       const row = byChat[t.chatId] || (byChat[t.chatId] = {
         chatId: t.chatId,
         title: titleMap[t.chatId] || '未命名会话',
-        inputs: 0, outChars: 0, inTokens: 0, outTokens: 0, credits: 0, estCredits: 0, lastTs: t.ts || 0,
+        inputs: 0, outChars: 0, inTokens: 0, outTokens: 0, credits: 0, lastTs: t.ts || 0,
       });
       row.credits += Math.abs(t.amount || 0);
       if ((t.ts || 0) > row.lastTs) row.lastTs = t.ts;
@@ -1144,12 +1137,11 @@ async function queryByDay() {
   for (const r of prompts) {
     const d = new Date(r.ts || Date.now());
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    const row = dayMap[key] || (dayMap[key] = { day: key, inputs: 0, inTokens: 0, outTokens: 0, credits: 0, estCredits: 0 });
+    const row = dayMap[key] || (dayMap[key] = { day: key, inputs: 0, inTokens: 0, outTokens: 0, credits: 0 });
     row.inputs += 1;
     row.inTokens += r.inTokens || 0;
     row.outTokens += r.outTokens || 0;
     row.credits += r.credits || 0;
-    row.estCredits += Math.round(((r.inTokens || 0) + (r.outTokens || 0)) * 1);
   }
   // 余额差分（权威）：dom 快照每天"首余额 - 末余额" = 当天真实消耗
   const snaps = balances.filter((b) => b.kind === 'dom' && b.general != null && b.general > 0).sort((a, b) => a.ts - b.ts);
@@ -1163,7 +1155,7 @@ async function queryByDay() {
   for (const [key, e] of Object.entries(dayDiff)) {
     const d = e.first - e.last;
     if (d > 0) {
-      const row = dayMap[key] || (dayMap[key] = { day: key, inputs: 0, inTokens: 0, outTokens: 0, credits: 0, estCredits: 0 });
+      const row = dayMap[key] || (dayMap[key] = { day: key, inputs: 0, inTokens: 0, outTokens: 0, credits: 0 });
       row.credits = d;
     }
   }

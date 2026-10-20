@@ -156,13 +156,12 @@
   </div>
 
   <div class="card">
-    <div class="card-h">积分折算<span class="tag">校准</span></div>
+    <div class="card-h">积分口径</div>
     <div class="row">
-      <label class="t">1 Token 折算积分倍率</label>
-      <input type="number" id="token-rate" min="0.001" step="0.001" value="1">
+      <label class="t">全部按实测积分统计</label>
       <div class="hint">
-        请求响应里能直接抓到积分字段时优先用实测值；抓不到时按 <code>(输入 Tokens + 输出 Tokens) × 倍率</code> 估算。<br>
-        默认 1。可以对照「我的积分」页面的实际扣减来校准。
+        消耗只认平台真实扣减（余额差分 / 消息里的结算值），不做任何 Token 折算估算。<br>
+        抓不到积分的数据会显示为 0，不会去猜一个数。
       </div>
     </div>
   </div>

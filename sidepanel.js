@@ -174,10 +174,9 @@ function fmtDur(ms) {
   return `${sec}秒`;
 }
 
-/* ---------------- 侧边栏内设置（完成通知 / 积分倍率） ----------------
+/* ---------------- 侧边栏内设置（完成通知） ----------------
    表单直接住在侧边栏里，不用跳去扩展设置页；两处共用 chrome.storage.sync 同一份配置。 */
 const SET_DEFAULTS = {
-  tokenRate: 1,
   notifyEnabled: false,
   notifyChannel: 'ntfy',
   notifyNtfyServer: 'https://ntfy.sh',
@@ -216,9 +215,7 @@ function updateSetSummary(cfg) {
 }
 
 function collectSettings() {
-  const rate = parseFloat($('sp-token-rate').value);
   return {
-    tokenRate: (rate > 0 ? rate : 1),
     notifyEnabled: $('sp-notify-enabled').checked,
     notifyChannel: _setChannel,
     // 侧边栏不提供「自建 ntfy 服务器」入口，沿用已有配置，避免把用户填过的地址覆盖掉
@@ -291,7 +288,6 @@ function initSettings() {
     $('sp-feishu-secret').value = cfg.notifyFeishuSecret || '';
     $('sp-only-away').checked = !!cfg.notifyOnlyAway;
     $('sp-min-sec').value = cfg.notifyMinSec;
-    $('sp-token-rate').value = cfg.tokenRate;
     setChannelUI(cfg.notifyChannel || 'ntfy');
     updateSetSummary(cfg);
   });
@@ -620,14 +616,13 @@ function refresh() {
   query('totals', null, (res) => {
     if (!res || !res.ok) return;
     const t = res.data;
-    const sig = [t.today.inputs, t.today.credits, t.today.estCredits, t.all.inputs, t.all.credits, t.all.estCredits].join('|');
+    const sig = [t.today.inputs, t.today.credits, t.all.inputs, t.all.credits].join('|');
     if (!sigChanged('totals', sig)) return;
     animateNum($('today-inputs'), t.today.inputs, 500);
-    const todayCredits = t.today.credits || t.today.estCredits;
-    animateNum($('today-credits'), todayCredits, 500);
-    $('today-credits').title = `测得 ${fmt(t.today.credits)} · 估算 ${fmt(t.today.estCredits)}`;
+    animateNum($('today-credits'), t.today.credits || 0, 500);
+    $('today-credits').title = `今日实测消耗 ${fmt(t.today.credits || 0)} 积分`;
     animateNum($('all-inputs'), t.all.inputs, 500);
-    animateNum($('all-credits'), t.all.credits || t.all.estCredits, 500);
+    animateNum($('all-credits'), t.all.credits || 0, 500);
   });
 }
 

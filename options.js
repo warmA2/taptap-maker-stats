@@ -1,11 +1,10 @@
-/* options.js — 设置页：完成通知 + 积分倍率 */
+/* options.js — 设置页：完成通知 */
 'use strict';
 
 const $ = (id) => document.getElementById(id);
 const msgEl = $('msg');
 
 const DEFAULTS = {
-  tokenRate: 1,
   notifyEnabled: false,
   notifyChannel: 'ntfy',
   notifyNtfyServer: 'https://ntfy.sh',
@@ -37,7 +36,6 @@ function setChannel(ch) {
 
 /* ---------- 载入 ---------- */
 chrome.storage.sync.get(DEFAULTS, (cfg) => {
-  $('token-rate').value = cfg.tokenRate;
   $('notify-enabled').checked = !!cfg.notifyEnabled;
   $('ntfy-topic').value = cfg.notifyNtfyTopic || '';
   $('ntfy-server').value = (cfg.notifyNtfyServer && cfg.notifyNtfyServer !== 'https://ntfy.sh') ? cfg.notifyNtfyServer : '';
@@ -86,9 +84,7 @@ async function ensureOrigins() {
 
 /* ---------- 保存 ---------- */
 async function save(silent) {
-  const rate = parseFloat($('token-rate').value);
   const cfg = {
-    tokenRate: (rate > 0 ? rate : 1),
     notifyEnabled: $('notify-enabled').checked,
     notifyChannel: currentChannel,
     notifyNtfyServer: ($('ntfy-server').value || '').trim() || 'https://ntfy.sh',
