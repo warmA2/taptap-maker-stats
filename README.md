@@ -57,7 +57,7 @@ TapTap 制造平台的积分消耗是**黑盒**：你不知道这一轮对话花
 
 ### 方式一：下载 Release（推荐）
 
-1. 到 [Releases](../../releases) 下载最新的 `taptap-maker-stats.zip` 并解压
+1. 到 [Releases](../../releases) 下载最新的 `taptap-maker-stats-0.9.47.zip` 并解压
 2. 打开 `chrome://extensions`（Edge 为 `edge://extensions`）
 3. 右上角开启 **开发者模式**
 4. 点 **加载已解压的扩展程序**，选择解压出来的文件夹
