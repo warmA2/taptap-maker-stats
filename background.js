@@ -149,6 +149,102 @@ function buildChatUrl(chatId) {
   return 'https://maker.taptap.cn/app/' + encodeURIComponent(appId) + '?chatId=' + encodeURIComponent(chatId);
 }
 
+/* ---------------- 模型名来源 ----------------
+ * 实测（读本机扩展库 1698 条 raw 记录得出）：消息流和结算回包里**都不带** model 字段，
+ * 平台把模型名放在请求参数上：/api/v1/credits/chargeable?productId=<appId>&model=<模型ID>
+ * （另有 /api/v1/model-classes?agentDriver=<驱动名>）。
+ * 切模型才发一次 chargeable，所以按 appId 缓存住，之后每轮盖到 prompt / msg-cost 上。
+ */
+const appModel = {};            // appId -> { model, ts }
+let lastModelSeen = null;       // { model, ts }
+
+function paramFromUrl(u, names) {
+  try {
+    const sp = new URL(String(u || '')).searchParams;
+    for (const n of names) {
+      const v = sp.get(n);
+      if (v && v.trim()) return v.trim();
+    }
+  } catch (e) { /* ignore */ }
+  return null;
+}
+
+// 从请求 URL 里捞模型名，并按 appId 记住"当前用的模型"
+function noteModelFromUrl(url, ts) {
+  const model = paramFromUrl(url, ['model', 'modelId', 'model_id']);
+  if (!model) return;
+  const t = ts || Date.now();
+  lastModelSeen = { model, ts: t };
+  const pid = paramFromUrl(url, ['productId', 'product_id', 'appId', 'app_id']) || appIdFromUrl(url);
+  if (pid) appModel[pid] = { model, ts: t };
+}
+
+// 这一轮用的模型：先按会话所属项目查缓存，查不到就用最近一次看到的（同一时段一般只用一个模型）
+function modelForChat(chatId) {
+  const pid = chatId ? chatProject[chatId] : null;
+  if (pid && appModel[pid]) return appModel[pid].model;
+  if (lastModelSeen && Date.now() - lastModelSeen.ts < 12 * 3600e3) return lastModelSeen.model;
+  return null;
+}
+
+/* ---------------- 余额快照口径 ----------------
+ * dom 快照有两种形态：积分页给 general/normal/paid（分类），会话页只给 available（剩余可用）。
+ * 旧代码只认 general，实测 1166 条 available 全被忽略，导致"每日/按小时消耗"基本没数。
+ */
+const BAL_TS_MIN = 1e12;        // 小于这个的时间戳是脏数据（0 / 秒级 / 解析失败）
+const BAL_KEYS = ['general', 'available', 'remaining', 'accountBalance'];
+
+function balValue(b) {
+  for (const k of BAL_KEYS) {
+    const v = Number(b && b[k]);
+    if (isFinite(v) && v > 0) return { v, k };
+  }
+  return null;
+}
+
+// 取余额时间点（按时间升序），丢掉时间戳非法的记录
+function balPoints(balances, sinceTs) {
+  const out = [];
+  for (const b of balances || []) {
+    if (!b || b.kind !== 'dom') continue;
+    const ts = Number(b.ts);
+    // 上下界都要卡：0/秒级/解析失败会造出 1970 的桶，异常大值会造出几千年后的桶
+    if (!isFinite(ts) || ts < BAL_TS_MIN || ts > Date.now() + 86400e3) continue;
+    if (sinceTs && ts < sinceTs) continue;
+    const val = balValue(b);
+    if (val) out.push({ ts, v: val.v, k: val.k });
+  }
+  return out.sort((a, b) => a.ts - b.ts);
+}
+
+// 分桶求"首末差"：同一桶内优先用 general 系列（口径最准），该桶没有 general 才用 available，
+// 不同桶之间不混口径；每桶用同一种字段自己和自己比，避免拿 general 减 available。
+function balDiffByBucket(points, bucketMs) {
+  const groups = new Map();     // `${bucket}|${field}` -> {first,last}
+  for (const p of points) {
+    const bk = Math.floor(p.ts / bucketMs) * bucketMs;
+    const key = bk + '|' + p.k;
+    const e = groups.get(key) || { bk, k: p.k, first: p.v, last: p.v, n: 0 };
+    e.last = p.v;
+    e.n += 1;
+    groups.set(key, e);
+  }
+  const byBucket = new Map();
+  for (const e of groups.values()) {
+    if (e.n < 2) continue;                       // 单个快照没法做差分
+    const cur = byBucket.get(e.bk);
+    // general 优先，其次 available/remaining
+    const rank = (k) => (k === 'general' ? 0 : k === 'available' ? 1 : 2);
+    if (!cur || rank(e.k) < rank(cur.k)) byBucket.set(e.bk, e);
+  }
+  const out = new Map();
+  for (const [bk, e] of byBucket) {
+    const d = e.first - e.last;
+    if (d > 0) out.set(bk, d);
+  }
+  return out;
+}
+
 // 积分分类（对照官方前端 vQ 函数：paid→event→project→normal→memberGeneral→general）
 // 页面余额口径（截图核对）：通用积分=general类批次 current 之和；基础积分=normal类；付费=paid类；
 // 活动=event类；项目包走 /credits/project-packages 的 balance。
@@ -363,6 +459,8 @@ function parseTransactions(data) {
 
 function ingest(type, data) {
   try {
+    // 任何带 URL 的事件都顺手看一眼模型参数（chargeable / model-classes 这类请求只在切模型时发一次）
+    if (data && data.url) noteModelFromUrl(data.url, data.ts);
     switch (type) {
       case 'ws-send': return onWsSend(data);
       case 'ws-message': return onWsMessage(data);
@@ -509,15 +607,61 @@ function extractInput(obj) {
   };
 }
 
-function saveInput({ text, chatId, sessionId, via, turnId, model }) {
-  const id = turnId || String(Date.now()) + Math.random().toString(16).slice(2);
+/* 同一轮对话会被反复上报：进会话时平台会重放历史帧、steering 帧也带 prompt 字段、
+ * 页面重渲染还可能再发一次。实测本机库里 466 条记录只对应 5 个 turnId —— 直接新建/覆盖有两个后果：
+ *   ① 「今日输入次数」和「进行中」被灌成几百条
+ *   ② 后来那一次覆盖把已经结算好的 credits / done 重置成 null（这是"消息归因没有积分"的真正原因）
+ * 所以这里改成：同一轮再次出现时合并，只补空字段 + 刷新心跳，绝不回退已有数据。
+ */
+function normText(t) { return String(t || '').replace(/\s+/g, ' ').trim(); }
+
+async function saveInput({ text, chatId, sessionId, via, turnId, model }) {
   const now = Date.now();
+  const cid = chatId || sessionId || 'unknown';
+  const txt = typeof text === 'string' ? text : '';
+  const mdl = model || modelForChat(cid) || null;
+
+  try {
+    // ① turnId 明确：作为主键，已存在就合并
+    if (turnId) {
+      const key = String(turnId);
+      const exist = await txGet('prompts', key);
+      if (exist) {
+        await txPut('prompts', {
+          ...exist,
+          text: exist.text || txt,
+          model: exist.model || mdl,
+          lastActive: now,
+          // credits / done / endedTs / outText 一律保留原值（除非原本就是空的）
+          outText: exist.outText || '',
+          done: !!exist.done,
+          endedTs: exist.endedTs || null,
+        });
+        return;
+      }
+    } else {
+      // ② 没有 turnId：同会话里 2 分钟内出现过的同文本，视为同一轮的重复上报
+      const all = await txGetAll('prompts');
+      const sig = normText(txt);
+      const dup = (all || []).find((r) => r && r.chatId === cid
+        && Math.abs((r.ts || 0) - now) < 120e3
+        && normText(r.text) === sig
+        && (sig !== '' || normText(r.text) === ''));
+      if (dup) {
+        await txPut('prompts', { ...dup, lastActive: now, model: dup.model || mdl });
+        return;
+      }
+    }
+  } catch (e) { /* 查询失败就走正常新建，别因为去重把数据丢了 */ }
+
+  const id = turnId || String(now) + Math.random().toString(16).slice(2);
   const p = txPut('prompts', {
     turnId: id,
     ts: now,
-    chatId: chatId || sessionId || 'unknown',
-    text: typeof text === 'string' ? text : '',
-    model: model || null,
+    chatId: cid,
+    text: txt,
+    // 模型名：优先用请求体/回包里直接带的，没有就取当前项目缓存的模型（平台只在切模型时发 chargeable）
+    model: mdl,
     chatRound: null, outText: '', inTokens: null, outTokens: null, credits: null,
     done: false, endedTs: null, via: via || 'auto',
     // lastActive：本轮最后一次有动静的时间（发出 / 收到流式片段 / 收到用量回包），
@@ -1104,26 +1248,38 @@ async function queryTotals() {
   // 消息级消耗流水（真实扣费），按时间归集
   const costs = txns.filter((t) => t.kind === 'msg-cost' && t.ts);
   const costSum = (rows) => sumBy(rows, (t) => Math.abs(t.amount || 0));
-  // 权威消耗 = 余额差分：dom 快照（页面"剩余X通用积分"）的下降 = 真实扣费，与页面余额变化一致
-  const snaps = balances.filter((b) => b.kind === 'dom' && b.general != null && b.general > 0).sort((a, b) => a.ts - b.ts);
+  // 权威消耗 = 余额差分：dom 快照下降 = 真实扣费，与页面余额变化一致
+  // 口径见 balValue/balPoints：general 优先，只有 available 的页面也能用
+  const snaps = balPoints(balances);
   const diffSince = (fromTs) => {
     const seg = snaps.filter((s) => s.ts >= fromTs);
-    if (seg.length < 2) return null;
-    const d = seg[0].general - seg[seg.length - 1].general;
-    return d > 0 ? d : null;
+    if (!seg.length) return null;
+    // 同一段时间里按字段各自求首末差，优先 general
+    const best = ['general', 'available', 'remaining']
+      .map((k) => {
+        const s = seg.filter((x) => x.k === k);
+        if (!s.length) return null;
+        const d = s[0].v - s[s.length - 1].v;
+        return d > 0 ? d : null;
+      })
+      .find((d) => d != null);
+    return best != null ? best : null;
   };
   const calc = (rows, crows, diff) => {
     const inTokens = sumBy(rows, (r) => r.inTokens || 0);
     const outTokens = sumBy(rows, (r) => r.outTokens || 0);
+    // 同一条扣费会同时记进 prompt.credits 和 msg-cost，两者是同一笔钱的两种记法：
+    // 早先这里写成相加，翻倍；必须取较大者
+    const byRow = sumBy(rows, (r) => r.credits || 0);
+    const byCost = costSum(crows);
     return {
       inputs: rows.length,
       outChars: sumBy(rows, (r) => (r.outText || '').length),
       inTokens, outTokens,
-      // 只认真实积分：余额差分优先（与页面一致）；无差分数据时回退消息级解析（旧数据兼容）
-      credits: diff != null ? diff : (sumBy(rows, (r) => r.credits || 0) + costSum(crows)),
+      credits: diff != null ? diff : Math.max(byRow, byCost),
     };
   };
-  const balanceDelta = snaps.length >= 2 ? Math.max(0, snaps[0].general - snaps[snaps.length - 1].general) : null;
+  const balanceDelta = diffSince(0);
   return {
     all: calc(prompts, costs, balanceDelta),
     today: calc(prompts.filter((r) => inDay(r.ts)), costs.filter((t) => inDay(t.ts)), diffSince(dayStart.getTime())),
@@ -1155,6 +1311,7 @@ async function queryByChat() {
     if (r.ts > row.lastTs) row.lastTs = r.ts;
   }
   // 合并消息级消耗流水（按会话归集）——真实扣费
+  // prompt.credits 与 msg-cost 是同一笔钱的两种记法，只能取较大者；之前是直接相加，会话排行会翻倍
   for (const t of txns) {
     if (t.kind === 'msg-cost' && t.chatId) {
       const row = byChat[t.chatId] || (byChat[t.chatId] = {
@@ -1162,9 +1319,13 @@ async function queryByChat() {
         title: titleMap[t.chatId] || '未命名会话',
         inputs: 0, outChars: 0, inTokens: 0, outTokens: 0, credits: 0, lastTs: t.ts || 0,
       });
-      row.credits += Math.abs(t.amount || 0);
+      row._cost = (row._cost || 0) + Math.abs(t.amount || 0);
       if ((t.ts || 0) > row.lastTs) row.lastTs = t.ts;
     }
+  }
+  for (const row of Object.values(byChat)) {
+    if (row._cost) row.credits = Math.max(row.credits, row._cost);
+    delete row._cost;
   }
   return Object.values(byChat).sort((a, b) => b.lastTs - a.lastTs);
 }
@@ -1192,17 +1353,9 @@ async function queryByDay() {
     rowFor(keyOf(t.ts))._txn += Math.abs(t.amount || 0);
   }
   // 余额差分（权威）：dom 快照每天"首余额 - 末余额" = 当天真实消耗
-  const snaps = balances.filter((b) => b.kind === 'dom' && b.general != null && b.general > 0).sort((a, b) => a.ts - b.ts);
-  const dayDiff = {};
-  for (const b of snaps) {
-    const key = keyOf(b.ts);
-    const e = dayDiff[key] || (dayDiff[key] = { first: b.general, last: b.general });
-    e.last = b.general;
-  }
-  for (const [key, e] of Object.entries(dayDiff)) {
-    const d = e.first - e.last;
-    if (d > 0) rowFor(key)._diff = d;
-  }
+  // 用 balPoints/balDiffByBucket —— general 优先，只有 available 的快照也算得出来；脏时间戳直接丢弃
+  const dayDiffMap = balDiffByBucket(balPoints(balances), 86400e3);
+  for (const [bk, d] of dayDiffMap) rowFor(keyOf(bk))._diff = d;
   // 结算字段与流水是同一笔钱的两种记法 → 取较大者，不能相加；有余额差分时直接采用差分
   const rows = Object.values(dayMap);
   for (const r of rows) {
@@ -1222,14 +1375,8 @@ async function queryCostSeries(hours) {
   const [balances, txns] = await Promise.all([txGetAll('balances'), txGetAll('txns')]);
   const cutoff = Date.now() - h * 3600e3;
 
-  const snaps = balances.filter((b) => b.kind === 'dom' && b.general != null && b.general > 0 && b.ts >= cutoff).sort((a, b) => a.ts - b.ts);
-  const bySnap = new Map();
-  for (const b of snaps) {
-    const bk = Math.floor(b.ts / 3600e3) * 3600e3;
-    const e = bySnap.get(bk) || { first: b.general, last: b.general };
-    e.last = b.general;
-    bySnap.set(bk, e);
-  }
+  const snaps = balPoints(balances, cutoff);
+  const snapDiff = balDiffByBucket(snaps, 3600e3);
 
   const byTxn = new Map();
   for (const t of txns) {
@@ -1238,11 +1385,10 @@ async function queryCostSeries(hours) {
     byTxn.set(bk, (byTxn.get(bk) || 0) + Math.abs(t.amount || 0));
   }
 
-  const keys = new Set([...bySnap.keys(), ...byTxn.keys()]);
+  const keys = new Set([...snapDiff.keys(), ...byTxn.keys()]);
   return Array.from(keys)
     .map((ts) => {
-      const e = bySnap.get(ts);
-      const snapAmount = e ? Math.max(0, e.first - e.last) : 0;
+      const snapAmount = snapDiff.get(ts) || 0;
       const txnAmount = byTxn.get(ts) || 0;
       // 快照能算出来就用快照（权威），否则用流水，避免同一小时被叠加两次
       return { ts, amount: snapAmount > 0 ? snapAmount : txnAmount };
@@ -1631,45 +1777,59 @@ async function maybeNotifyDone(turnId) {
 
 async function queryByModel() {
   const [all, prompts] = await Promise.all([txGetAll('txns'), txGetAll('prompts')]);
-  const byM = {};
-  const rowFor = (m) => byM[m] || (byM[m] = { model: m, count: 0, spent: 0, projects: {} });
 
-  // 来源一：积分明细里自带模型名的扣费条目（最权威，但多数接口不带这个字段）
-  let fromTxns = 0;
-  for (const t of all) {
-    for (const it of (t.items || [])) {
-      if (!it || !it.model) continue;
-      const a = it.amount || 0;
-      // 只统计扣费（amount<0）：发放是会员卡送积分，与模型使用无关
-      if (a >= 0) continue;
-      fromTxns++;
-      const row = rowFor(it.model);
-      row.count += 1;
-      row.spent += Math.abs(a);
-      if (it.projectName) row.projects[it.projectName] = 1;
-    }
-  }
-
-  // 来源二：每轮对话记录里的模型名（结算回包/请求体里带的那种）
-  // 明细已经给了模型就不再走这条，避免同一笔扣费被算两遍
-  if (!fromTxns) {
+  // 三个来源，按"粒度 + 可信度"依次尝试，只取第一个有数据的，绝不叠加：
+  //   ① msg-cost 逐轮流水带 model（最细，能落到项目）
+  //   ② 积分明细 items 里带 model 的扣费条目（官方账本，但条目稀少）
+  //   ③ 对话记录 prompts.model
+  // 旧版只用了 ② —— 而 /credits/transactions 大部分条目并不带 model，所以永远是空的。
+  const collect = (rows, getModel, getSpent, getProj) => {
+    const byM = {};
     const seen = new Set();
-    for (const p of prompts) {
-      if (!p.model) continue;
-      const key = p.turnId || (p.chatId + '|' + p.ts);
+    for (const r of rows) {
+      const m = getModel(r);
+      if (!m) continue;
+      const key = r.turnId || r.id || (r.chatId + '|' + r.ts);
       if (seen.has(key)) continue;
       seen.add(key);
-      const row = rowFor(p.model);
+      const row = byM[m] || (byM[m] = { model: m, count: 0, spent: 0, projects: {} });
       row.count += 1;
-      row.spent += Math.abs(Number(p.credits) || 0);
-      const pid = (p.chatId && chatProject[p.chatId]) || null;
-      const nm = pid ? (projectTitles[pid] || null) : null;
-      if (nm) row.projects[nm] = 1;
+      row.spent += getSpent(r);
+      const p = getProj(r);
+      if (p) row.projects[p] = 1;
+    }
+    return Object.values(byM);
+  };
+
+  const fromCost = collect(
+    all.filter((t) => t.kind === 'msg-cost' && t.model),
+    (t) => t.model,
+    (t) => Math.abs(t.amount || 0),
+    (t) => t.projectName || (t.chatId && chatProject[t.chatId] ? (projectTitles[chatProject[t.chatId]] || null) : null),
+  );
+  if (fromCost.length) return sortModels(fromCost);
+
+  const itemRows = [];
+  for (const t of all) {
+    for (const it of (t.items || [])) {
+      // 只统计扣费（amount<0）：发放是会员卡送积分，与模型使用无关
+      if (it && it.model && (it.amount || 0) < 0) itemRows.push(it);
     }
   }
+  const fromItems = collect(itemRows, (it) => it.model, (it) => Math.abs(it.amount || 0), (it) => it.projectName || null);
+  if (fromItems.length) return sortModels(fromItems);
 
-  return Object.values(byM)
-    .map((r) => ({ model: r.model, count: r.count, spent: r.spent, projects: Object.keys(r.projects) }))
+  return sortModels(collect(
+    prompts.filter((p) => p.model),
+    (p) => p.model,
+    (p) => Math.abs(Number(p.credits) || 0),
+    (p) => (p.chatId && chatProject[p.chatId] ? (projectTitles[chatProject[p.chatId]] || null) : null),
+  ));
+}
+
+function sortModels(rows) {
+  return rows
+    .map((r) => ({ model: r.model, count: r.count, spent: r.spent, projects: Object.keys(r.projects || {}) }))
     .sort((a, b) => b.spent - a.spent || b.count - a.count);
 }
 
