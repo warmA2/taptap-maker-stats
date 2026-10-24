@@ -52,6 +52,9 @@
     background: linear-gradient(90deg, transparent, rgba(255,255,255,.35), transparent);
   }
   .brand-row { display: flex; align-items: center; gap: 11px; position: relative; }
+  .brand-title { min-width: 0; flex: 1 1 auto; overflow: hidden; }
+  .brand-title h1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .brand-title .sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .brand .logo {
     width: 38px; height: 38px; border-radius: 12px;
     background: linear-gradient(135deg, #38bdf8, #6366f1, #8b5cf6);
@@ -61,10 +64,12 @@
   .brand h1 { margin: 0; font-size: 15px; font-weight: 800; letter-spacing: .2px; }
   .brand .sub { font-size: 11px; color: #9aa7c7; margin-top: 3px; letter-spacing: .3px; }
   .brand .link {
-    margin-left: auto; font-size: 11px; color: #dbe4ff;
-    background: rgba(255,255,255,.09); padding: 6px 12px; border-radius: 10px;
+    font-size: 10.5px; color: #dbe4ff; text-align: center;
+    background: rgba(255,255,255,.09); padding: 4px 10px; border-radius: 8px;
     border: 1px solid rgba(255,255,255,.14); transition: all .2s; font-weight: 600;
+    white-space: nowrap;
   }
+  .brand .links { margin-left: auto; display: flex; flex-direction: column; gap: 4px; }
   .brand .link:hover { background: rgba(255,255,255,.18); transform: translateY(-1px); }
   .status-row { display: flex; align-items: center; gap: 8px; margin-top: 13px; font-size: 12px; position: relative; flex-wrap: wrap; }
   .pill {
@@ -355,11 +360,14 @@
   <div class="brand">
     <div class="brand-row">
       <div class="logo">📊</div>
-      <div>
+      <div class="brand-title">
         <h1>TapTap 制造统计</h1>
         <div class="sub">输入与积分 · 实时监测</div>
       </div>
-      <a class="link" href="dashboard.html" target="_blank">详细数据 ↗</a>
+      <div class="links">
+        <a class="link" href="archive.html" target="_blank">会话归档 ↗</a>
+        <a class="link" href="dashboard.html" target="_blank">详细数据 ↗</a>
+      </div>
     </div>
     <div class="status-row" id="inject-status"></div>
   </div>

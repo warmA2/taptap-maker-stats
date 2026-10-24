@@ -120,8 +120,33 @@ let hookReadyAt = null;
 let wsGeneralLatest = null;
 try { chrome.storage.local.get('wsGeneralLatest', (o) => { if (o && o.wsGeneralLatest) wsGeneralLatest = o.wsGeneralLatest; }); } catch (e) {}
 // 项目名映射（projectId → 页面标题）与 会话→项目 映射（/app/{projectId}?chatid={chatId}）
+// 这两张表是内存变量，Service Worker 一重启就没了；归档页要按项目分组，所以落一份到 storage.local。
 const projectTitles = {};
 const chatProject = {};
+let projMapLoaded = null;
+let projMapTimer = null;
+
+function loadProjMaps() {
+  if (projMapLoaded) return projMapLoaded;
+  projMapLoaded = chrome.storage.local.get({ projMapChat: null, projMapTitle: null })
+    .then((r) => {
+      if (r && r.projMapChat) Object.assign(chatProject, r.projMapChat);
+      if (r && r.projMapTitle) Object.assign(projectTitles, r.projMapTitle);
+    })
+    .catch(() => {});
+  return projMapLoaded;
+}
+
+// 节流写盘：映射会被频繁更新（每次 dom-scan 都可能写），攒 5 秒一次足够
+function saveProjMaps() {
+  if (projMapTimer) return;
+  projMapTimer = setTimeout(() => {
+    projMapTimer = null;
+    try {
+      chrome.storage.local.set({ projMapChat: { ...chatProject }, projMapTitle: { ...projectTitles } });
+    } catch (e) { /* ignore */ }
+  }, 5000);
+}
 // 会话 → 页面地址：通知里的「打开会话」按钮要跳回去，就得知道那一轮是在哪个页面跑的。
 // chatId 不一定出现在 URL 里，所以先记「最近一次 maker 页面地址」，发消息那一刻绑定给 chatId。
 const chatUrlMap = {};
@@ -494,7 +519,7 @@ function ingest(type, data) {
         // 项目列表页：名称↔ID 官方映射（项目名 + /app/{pid} 链接）
         try {
           for (const it of (data.items || [])) {
-            if (it && it.pid && it.name) projectTitles[it.pid] = it.name;
+            if (it && it.pid && it.name) { projectTitles[it.pid] = it.name; saveProjMaps(); }
           }
         } catch (e) { /* ignore */ }
         return undefined;
@@ -510,11 +535,11 @@ function ingest(type, data) {
           const pid = (url.match(/\/app\/([^/?]+)/) || [])[1] || null;
           const cid = (url.match(/[?&]chatid=([^&]+)/i) || [])[1] || null;
           if (pid) {
-            if (cid) chatProject[cid] = pid;
+            if (cid) { chatProject[cid] = pid; saveProjMaps(); }
             const names = (data.texts || [])
               .map((t) => (String(t).match(/项目\s*\(\s*([^)]{1,40}?)\s*\)\s*(?:对话|生成|消耗|图片)/) || [])[1])
               .filter(Boolean);
-            if (names.length) projectTitles[pid] = names[0];
+            if (names.length) { projectTitles[pid] = names[0]; saveProjMaps(); }
           }
         } catch (e) { /* ignore */ }
         const parsed = parseDomTexts(data.texts || []);
@@ -743,7 +768,7 @@ function onWsSend(data) {
   if (chatId && lastMakerUrl) {
     chatUrlMap[chatId] = lastMakerUrl;
     const aid = appIdFromUrl(lastMakerUrl);
-    if (aid && !chatProject[chatId]) chatProject[chatId] = aid;
+    if (aid && !chatProject[chatId]) { chatProject[chatId] = aid; saveProjMaps(); }
   }
   const turnId = msg.id || String(Date.now()) + Math.random().toString(16).slice(2);
   // 文本字段可能是 prompt/text/content/message 等任意位置，通用提取兜底
@@ -1141,7 +1166,7 @@ function onHttpResponse(data) {
         for (const it of items) {
           const id = it && (it.id || it.appId || it.projectId || it.uid);
           const name = it && (it.name || it.title || it.appName);
-          if (id && name) projectTitles[String(id)] = String(name);
+          if (id && name) { projectTitles[String(id)] = String(name); saveProjMaps(); }
         }
         saveRaw({ ts: data.ts || Date.now(), url, json: { names: Object.keys(projectTitles).length }, note: 'project-list-api' });
       }
@@ -1833,6 +1858,86 @@ function sortModels(rows) {
     .sort((a, b) => b.spent - a.spent || b.count - a.count);
 }
 
+// 归档页：把全部轮次按 项目 → 会话 两层摆好，交给 archive.html 渲染
+// 注意：这里给的是原文（输入 + 输出），一次全量返回，数据量在几万字级别，够用
+async function queryArchive() {
+  await loadProjMaps();
+  const [prompts, chats, txns] = await Promise.all([txGetAll('prompts'), txGetAll('chats'), txGetAll('txns')]);
+
+  const titleMap = {};
+  for (const c of chats) if (c && c.id) titleMap[c.id] = c.title || '';
+
+  // 每个会话的真实消耗（msg-cost 按 chatId 汇总）
+  const costByChat = {};
+  for (const t of txns) {
+    if (t && t.kind === 'msg-cost' && t.chatId) {
+      costByChat[t.chatId] = (costByChat[t.chatId] || 0) + Math.abs(t.amount || 0);
+    }
+  }
+
+  const byChat = {};
+  for (const p of prompts) {
+    if (!p || !p.chatId) continue;
+    (byChat[p.chatId] || (byChat[p.chatId] = [])).push(p);
+  }
+
+  const projects = new Map();
+  for (const [cid, turns] of Object.entries(byChat)) {
+    turns.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+    const pid = chatProject[cid] || '';
+    const key = pid || '__none__';
+    if (!projects.has(key)) {
+      projects.set(key, {
+        id: pid || null,
+        name: pid ? (projectTitles[pid] || ('项目 ' + pid.slice(0, 8))) : '未归类会话',
+        chats: [],
+      });
+    }
+    const firstText = (turns.find((t) => normText(t.text)) || {}).text || '';
+    const chars = turns.reduce((a, t) => a + (t.outText || '').length, 0);
+    projects.get(key).chats.push({
+      chatId: cid,
+      // 标题优先用平台真名；没有就拿第一句输入压一下（比一串 UUID 有用）
+      title: (titleMap[cid] || '').trim() || fmtChatTitle(normText(firstText)) || ('会话 ' + String(cid).slice(0, 8)),
+      startTs: turns[0].ts || null,
+      endTs: turns[turns.length - 1].endedTs || turns[turns.length - 1].ts || null,
+      inputs: turns.length,
+      chars,
+      credits: costByChat[cid] || 0,
+      turns: turns.map((t) => ({
+        turnId: t.turnId,
+        ts: t.ts || null,
+        text: t.text || '',
+        outText: t.outText || '',
+        credits: t.credits || 0,
+        model: t.model || null,
+        done: !!t.done,
+      })),
+    });
+  }
+
+  const list = [...projects.values()].map((p) => {
+    p.chats.sort((a, b) => (b.startTs || 0) - (a.startTs || 0));
+    p.inputs = p.chats.reduce((a, c) => a + c.inputs, 0);
+    p.chars = p.chats.reduce((a, c) => a + c.chars, 0);
+    p.credits = p.chats.reduce((a, c) => a + c.credits, 0);
+    p.lastTs = p.chats.reduce((a, c) => Math.max(a, c.endTs || c.startTs || 0), 0);
+    return p;
+  }).sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0));
+
+  return {
+    projects: list,
+    stats: {
+      projects: list.length,
+      chats: list.reduce((a, p) => a + p.chats.length, 0),
+      inputs: list.reduce((a, p) => a + p.inputs, 0),
+      chars: list.reduce((a, p) => a + p.chars, 0),
+      credits: list.reduce((a, p) => a + p.credits, 0),
+    },
+    generatedAt: Date.now(),
+  };
+}
+
 async function queryByProject() {
   const [prompts, txns, chats] = await Promise.all([txGetAll('prompts'), txGetAll('txns'), txGetAll('chats')]);
   const titleMap = {};
@@ -2045,7 +2150,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (cid) {
         chatUrlMap[cid] = pageUrl;
         const aid = appIdFromUrl(pageUrl);
-        if (aid && !chatProject[cid]) chatProject[cid] = aid;
+        if (aid && !chatProject[cid]) { chatProject[cid] = aid; saveProjMaps(); }
       }
     }
     ingest(msg.type, msg.data);
@@ -2107,6 +2212,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       : q === 'byDay' ? queryByDay()
       : q === 'chats' ? queryChats()
       : q === 'byProject' ? queryByProject()
+      : q === 'archive' ? queryArchive()
       : q === 'byModel' ? queryByModel()
       : q === 'sessions' ? querySessions()
       : q === 'costSeries' ? queryCostSeries(msg.hours)

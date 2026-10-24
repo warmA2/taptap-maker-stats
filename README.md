@@ -3,7 +3,7 @@
 > 记录你在 [TapTap 制造](https://maker.taptap.cn/) 的**每一次输入**，按**会话**和**项目**统计 token 与积分消耗，侧边栏常驻显示**当前登录用户的各项积分余额**。
 > 一个纯本地的浏览器扩展 —— 数据只存在你自己的浏览器里，不上传任何服务器。
 
-![version](https://img.shields.io/badge/version-0.9.62-blue)
+![version](https://img.shields.io/badge/version-0.9.63-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/Chrome%20%2F%20Edge-114%2B-lightgrey)
 ![manifest](https://img.shields.io/badge/Manifest-V3-orange)
@@ -41,6 +41,7 @@
 | 进行中 & 会话耗时 | 每个会话的开始 / 结束与实际耗时；没收到结束信号的轮次单独计数 |
 | 设置 | **置顶第一张卡片**。标题行右侧有常驻开关，**不展开就能开关完成通知**；点标题就地展开，改通道 / 地址 / 触发条件。不用打开扩展设置页 |
 | 详细数据入口 | 一键打开 Dashboard（趋势、排行、明细） |
+| 会话归档入口 | 打开归档页：按项目 / 会话浏览全部对话，可搜索、可导出 Markdown 喂给模型做整合分析 |
 
 **Dashboard（点侧边栏右上角「详细数据 ↗」打开）**
 
@@ -94,6 +95,18 @@ git clone https://github.com/warmA2/taptap-maker-stats.git
 > 侧边栏显示「未注入」时：确认扩展已加载 → `chrome://extensions` 点「重新加载」→ **刷新 maker.taptap.cn 页面**。升级扩展后这两步都要做一遍。
 
 ---
+
+## 会话归档（把历史对话摊开看）
+
+侧边栏右上角「**会话归档 ↗**」打开一个独立页面，左边是「项目 → 会话」两层树，右边是逐轮对话原文。侧边栏里塞不下这么长的时间线，所以单独开页。
+
+- **分组**：项目名取自平台官方项目列表；没有归属的会话归到「未归类会话」，不硬猜
+- **会话标题**：优先用平台真名；平台没给就用第一句输入压成标题，至少不是一串 UUID
+- **搜索**：一次搜标题、项目名和对话正文，命中处高亮，左侧只留命中的会话
+- **导出 Markdown**：整个归档导出成一个 .md，开头带统计摘要和使用说明，直接丢给任何模型就能做「我在各项目里做过什么、卡在哪、需求怎么演进的」这类整合分析
+- **单个会话**也能单独复制
+
+一个已知边界：这里只有「你说了什么 + 模型回了什么」。工具调用、生成的图片、改了哪些文件都没有记录 —— 那些不在注入能看到的范围内。
 
 ## 完成通知（跑完推手机）
 
@@ -247,8 +260,10 @@ TapTap 制造 · 任务完成
 ├── background.js      # Service Worker：解析、入库（IndexedDB）、聚合查询
 ├── sidepanel.html     # 侧边栏 UI
 ├── sidepanel.js
-├── dashboard.html     # 数据看板
+├── dashboard.html     # 数据看板（趋势、排行、明细）
 ├── dashboard.js
+├── archive.html       # 会话归档：项目 → 会话 → 逐轮对话
+├── archive.js
 ├── options.html       # 设置页（完成通知）
 ├── options.js
 └── icons/             # 16 / 32 / 48 / 128
