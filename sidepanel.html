@@ -127,6 +127,20 @@
   .panel.dragging .panel-title { cursor: grabbing; }
 
   /* ===== 项目收入 ===== */
+  .inc-seg {
+    margin-left: auto; display: inline-flex; gap: 2px; padding: 2px;
+    background: #f1f4fa; border-radius: 7px;
+  }
+  .inc-seg button {
+    font-family: inherit; font-size: 10px; line-height: 1; font-weight: 600;
+    padding: 3px 6px; border: 0; border-radius: 5px; background: none;
+    color: #7b869c; cursor: pointer; white-space: nowrap;
+  }
+  .inc-seg button:hover { color: #4338ca; }
+  .inc-seg button.on {
+    background: #fff; color: #4338ca; box-shadow: 0 1px 2px rgba(16, 24, 40, .10);
+  }
+  .panel.collapsed .inc-seg { display: none; }
   .inc-appbar { position: relative; display: flex; margin-bottom: 9px; }
   .inc-sel {
     width: 100%; min-width: 0; font-family: inherit; font-size: 11.5px; color: #1f2937;
@@ -496,7 +510,7 @@
 
   <!-- 项目收入：游戏内广告（T+1），数据来自开发者后台 -->
   <section class="panel" data-mod="income">
-    <div class="panel-title"><span><span class="ic">💰</span>项目收入</span> <span class="live">近 7 天</span></div>
+    <div class="panel-title"><span><span class="ic">💰</span>项目收入</span><span class="inc-seg" id="inc-seg"><button type="button" data-n="7">7天</button><button type="button" data-n="14">14天</button><button type="button" data-n="30">30天</button></span></div>
     <div class="inc-appbar" id="inc-appbar"><span class="inc-appname">读取中…</span></div>
     <div id="inc-body">
       <div class="inc-top">

@@ -3,7 +3,7 @@
 > 记录你在 [TapTap 制造](https://maker.taptap.cn/) 的**每一次输入**，按**会话**和**项目**统计 token 与积分消耗，侧边栏常驻显示**当前登录用户的各项积分余额**。
 > 一个纯本地的浏览器扩展 —— 数据只存在你自己的浏览器里，不上传任何服务器。
 
-![version](https://img.shields.io/badge/version-0.9.68-blue)
+![version](https://img.shields.io/badge/version-0.9.69-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/Chrome%20%2F%20Edge-114%2B-lightgrey)
 ![manifest](https://img.shields.io/badge/Manifest-V3-orange)
@@ -33,7 +33,7 @@
 | 注入状态 | 顶部显示当前页面是否已生效（未注入会提示刷新） |
 | 我的积分 | 当前登录用户的完整积分构成：通用积分（长期 + 到期）、基础积分、付费积分、周期积分、会员卡权益、待发放批次；每 60 秒自动更新 |
 | 今日概览 | 今日消耗、输入次数、累计消耗 |
-| 项目收入 | 近 7 天游戏内广告的**预估收益**、日均、曝光、商店页浏览。数据来自开发者后台，T+1 结算。卡片上带项目下拉，多个应用直接在这里切换，不用跳页 |
+| 项目收入 | 游戏内广告的**预估收益**、日均、曝光、商店页浏览。区间 7 / 14 / 30 / 90 天可选，卡片上带项目下拉，多个应用直接在这里切换，不用跳页 |
 | 按项目消耗 | 每个项目的输入次数与积分消耗，可展开看会话明细 |
 | 每日消耗曲线 | 近 24 小时逐时消耗柱状图 |
 | 近 7 天消耗 | 最近 7 天每天一个点 |

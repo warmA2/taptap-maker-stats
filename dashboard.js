@@ -455,10 +455,13 @@ function loadDevApps() {
       return;
     }
     DEV.apps = list;
-    chrome.storage.local.get('devPick', (o) => {
+    chrome.storage.local.get(['devPick', 'devRange'], (o) => {
       const saved = o && o.devPick;
       const hit = DEV.apps.find((a) => String(a.id) === String(saved)) || DEV.apps[0];
       DEV.appId = hit ? String(hit.id) : '';
+      // 区间沿用侧边栏的选择（那边只有 7/14/30，这里能覆盖到 1/90）
+      const r = Number(o && o.devRange);
+      if ([1, 7, 14, 30, 90].indexOf(r) !== -1) applyRange(r, false);
       fillAppSelects();
       loadAd();
       loadDev();
@@ -570,24 +573,44 @@ function loadDev(force) {
   const el = $(id);
   if (el) el.addEventListener('change', () => switchApp(id));
 });
+/* 两个面板共用一个区间：点哪个都是「近 N 天」，另一个跟着走 */
+function applyRange(n, reload) {
+  DEV.adN = n;
+  DEV.devN = n;
+  ['ad-seg', 'dev-seg'].forEach((id) => {
+    const box = $(id);
+    if (!box) return;
+    box.querySelectorAll('button[data-n]').forEach((b) => {
+      b.classList.toggle('on', Number(b.dataset.n) === n);
+    });
+  });
+  if (reload) { loadAd(true); loadDev(true); }
+}
+
 ['ad-seg', 'dev-seg'].forEach((id) => {
   const box = $(id);
   if (!box) return;
   box.addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-n]');
     if (!btn) return;
-    box.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === btn));
     const n = Number(btn.dataset.n) || 7;
-    if (id === 'ad-seg') { DEV.adN = n; loadAd(true); } else { DEV.devN = n; loadDev(true); }
+    applyRange(n, true);
+    // 侧边栏只有 7/14/30 三档，其它值不写回去，免得把它打乱
+    if ([7, 14, 30].indexOf(n) !== -1) chrome.storage.local.set({ devRange: n });
   });
 });
 
 loadDevApps();
 
-// 侧边栏里切了项目，这个页面跟着换（两边共用一个 devPick）
+// 侧边栏里切了项目或区间，这个页面跟着换（两边共用 devPick / devRange）
 if (chrome.storage && chrome.storage.onChanged) {
   chrome.storage.onChanged.addListener((ch, area) => {
-    if (area !== 'local' || !ch.devPick) return;
+    if (area !== 'local') return;
+    if (ch.devRange) {
+      const r = Number(ch.devRange.newValue);
+      if (r && r !== DEV.adN && [1, 7, 14, 30, 90].indexOf(r) !== -1) applyRange(r, true);
+    }
+    if (!ch.devPick) return;
     const nv = ch.devPick.newValue;
     if (!nv || String(nv) === String(DEV.appId)) return;
     if (!DEV.apps.some((a) => String(a.id) === String(nv))) return;   // 列表里没有就不动

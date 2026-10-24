@@ -1090,6 +1090,35 @@ function incFillApps(list, currentId) {
   });
 }
 
+/* 区间：7 / 14 / 30 天。存在本地，下次打开还是这个
+ * 广告 T+1 → 终点固定是昨天，取 n 天；曝光含今天 → 取 n 天到当天 */
+let INC_N = 7;
+
+function incSetSeg(n) {
+  INC_N = n;
+  const box = $('inc-seg');
+  if (!box) return;
+  box.querySelectorAll('button[data-n]').forEach((b) => {
+    b.classList.toggle('on', Number(b.dataset.n) === n);
+  });
+}
+
+(function bindIncSeg() {
+  const box = $('inc-seg');
+  if (!box) return;
+  box.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-n]');
+    if (!b) return;
+    const n = Number(b.dataset.n) || 7;
+    if (n === INC_N) return;
+    incSetSeg(n);
+    chrome.storage.local.set({ devRange: n });
+    loadIncome({ n });
+  });
+})();
+
+incSetSeg(INC_N);   // 先点亮 7 天，等读到存储再纠正
+
 function incRender(ad, st) {
   const hasData = ad && ad.dates && ad.dates.length;
   const totalEl = $('inc-total');
@@ -1097,7 +1126,7 @@ function incRender(ad, st) {
   totalEl.textContent = hasData ? '¥' + Number(ad.total || 0).toFixed(2) : '–';
   $('inc-sub').textContent = hasData
     ? 'T+1 预估' + (ad.pendingDays ? ' · ' + ad.pendingDays + ' 天待结算' : '')
-    : '近 7 天没有已结算收益';
+    : '近 ' + INC_N + ' 天没有已结算收益';
   $('inc-perday').textContent = hasData && ad.perDay != null ? '¥' + Number(ad.perDay).toFixed(2) : '–';
   $('inc-imp').textContent = st && st.totals ? fmt(st.totals.impression) : '–';
   $('inc-pv').textContent = st && st.totals ? fmt(st.totals.detail) : '–';
@@ -1128,8 +1157,10 @@ function loadIncome(opts) {
       incError((d && d.error) || (res && res.error) || '开发者后台读不到应用');
       return;
     }
-    chrome.storage.local.get('devPick', (s) => {
+    chrome.storage.local.get(['devPick', 'devRange'], (s) => {
       if (!stillCurrent()) return;
+      const n = o.n || Number(s && s.devRange) || INC_N;
+      incSetSeg(n);
       const want = o.appId || (s && s.devPick);
       const app = list.find((a) => String(a.id) === String(want)) || list[0];
       incFillApps(list, app.id);
@@ -1143,11 +1174,11 @@ function loadIncome(opts) {
         incRender(ad, st.error ? null : st);
       };
       const force = !!o.force;
-      query('devAd', { appId: app.id, devId: app.devId, start: incYmd(-7), end: incYmd(-1), force }, (r1) => {
+      query('devAd', { appId: app.id, devId: app.devId, start: incYmd(-n), end: incYmd(-1), force }, (r1) => {
         ad = (r1 && r1.ok ? r1.data : null) || { error: (r1 && r1.error) || '收益拉取失败' };
         done();
       });
-      query('devStats', { appId: app.id, devId: app.devId, start: incYmd(-6), end: incYmd(0), force }, (r2) => {
+      query('devStats', { appId: app.id, devId: app.devId, start: incYmd(-(n - 1)), end: incYmd(0), force }, (r2) => {
         st = (r2 && r2.ok ? r2.data : null) || { error: (r2 && r2.error) || '表现拉取失败' };
         done();
       });
@@ -1162,7 +1193,12 @@ setInterval(() => loadIncome({ force: true }), 10 * 60 * 1000);
 // 在「详细数据」页切了项目，侧边栏跟着换
 if (chrome.storage && chrome.storage.onChanged) {
   chrome.storage.onChanged.addListener((ch, area) => {
-    if (area !== 'local' || !ch.devPick) return;
+    if (area !== 'local') return;
+    if (ch.devRange) {
+      const n = Number(ch.devRange.newValue);
+      if (n && n !== INC_N) { incSetSeg(n); loadIncome({ n }); }
+    }
+    if (!ch.devPick) return;
     const nv = ch.devPick.newValue;
     if (!nv || String(nv) === String(ch.devPick.oldValue)) return;
     const sel = $('inc-app');
