@@ -36,6 +36,37 @@
   .raw { font-size: 11px; color: #6b7280; font-family: Consolas, monospace; white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow: auto; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } }
+
+  /* ---------- 项目收入 / 数据表现 ---------- */
+  .row-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .row-head h2 { margin: 0; }
+  .hint { font-size: 11px; color: #9ca3af; font-weight: 400; margin-left: 8px; }
+  .ctrl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .sel {
+    font-family: inherit; font-size: 12px; padding: 5px 8px; border: 1px solid #e5e7eb;
+    border-radius: 7px; background: #fff; color: #374151; max-width: 240px;
+  }
+  .segs { display: inline-flex; background: #e9eef6; border-radius: 8px; padding: 2px; }
+  .segs button {
+    font-family: inherit; font-size: 12px; padding: 5px 10px; border: 0; background: none;
+    border-radius: 6px; color: #64748b; cursor: pointer; white-space: nowrap;
+  }
+  .segs button:hover { color: #1d4ed8; }
+  .segs button.on {
+    background: #fff; color: #1d4ed8; font-weight: 600;
+    box-shadow: 0 1px 3px rgba(16, 24, 40, .14), 0 0 0 1px rgba(16, 24, 40, .04);
+  }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 10px; margin-bottom: 12px; }
+  .kpi { background: #f8fafc; border: 1px solid #eef2f7; border-radius: 8px; padding: 10px 12px; }
+  .kpi .v { font-size: 20px; font-weight: 700; color: #0f172a; font-variant-numeric: tabular-nums; }
+  .kpi .l { font-size: 11px; color: #6b7280; margin-top: 3px; }
+  .kpi.loading .v { color: #cbd5e1; }
+  .note { font-size: 11.5px; margin-top: 8px; line-height: 1.65; }
+  .note.err { color: #b91c1c; }
+  .note a { color: #1d4ed8; }
+  #ad-chart, #dev-chart { height: 200px; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; font-size: 11.5px; color: #6b7280; }
+  .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
 </style>
 </head>
 <body>
@@ -51,6 +82,54 @@
     <div class="card"><div class="v" id="all-credits">–</div><div class="l">累计积分（测得）</div></div>
     <div class="card"><div class="v" id="week-inputs">–</div><div class="l">近 7 天输入</div></div>
     <div class="card"><div class="v" id="today-inputs">–</div><div class="l">今日输入</div></div>
+  </div>
+
+  <!-- ===== 项目收入（游戏内广告，T+1） ===== -->
+  <div class="panel">
+    <div class="row-head">
+      <h2>项目收入<span class="hint">预估 · T+1 · 来自开发者后台</span></h2>
+      <div class="ctrl">
+        <select id="ad-app" class="sel"><option value="">读取应用…</option></select>
+        <div class="segs" id="ad-seg">
+          <button data-n="1">昨天</button>
+          <button data-n="7" class="on">近 7 天</button>
+          <button data-n="30">近 30 天</button>
+          <button data-n="90">近 90 天</button>
+        </div>
+      </div>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="v" id="ad-total">–</div><div class="l">区间预估收益</div></div>
+      <div class="kpi"><div class="v" id="ad-perday">–</div><div class="l">日均（已结算天）</div></div>
+      <div class="kpi"><div class="v" id="ad-settled">–</div><div class="l">已结算天数</div></div>
+      <div class="kpi"><div class="v" id="ad-pending">–</div><div class="l">待结算</div></div>
+    </div>
+    <canvas id="ad-chart" height="200"></canvas>
+    <div class="muted note" id="ad-note">逐日数字是预估，后台每月 28 日结算上月广告收益；对账请以结算后为准。</div>
+  </div>
+
+  <!-- ===== 商店数据表现 ===== -->
+  <div class="panel">
+    <div class="row-head">
+      <h2>商店数据表现<span class="hint">安卓口径 · 来自开发者后台</span></h2>
+      <div class="ctrl">
+        <select id="dev-app" class="sel"><option value="">读取应用…</option></select>
+        <div class="segs" id="dev-seg">
+          <button data-n="1">今天</button>
+          <button data-n="7" class="on">近 7 天</button>
+          <button data-n="30">近 30 天</button>
+          <button data-n="90">近 90 天</button>
+        </div>
+      </div>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="v" id="dev-imp">–</div><div class="l">游戏曝光数</div></div>
+      <div class="kpi"><div class="v" id="dev-pv">–</div><div class="l">商店页浏览</div></div>
+      <div class="kpi"><div class="v" id="dev-ctr">–</div><div class="l">商店页点击率</div></div>
+      <div class="kpi"><div class="v" id="dev-cvr">–</div><div class="l">商店页转化率</div></div>
+    </div>
+    <canvas id="dev-chart" height="200"></canvas>
+    <div class="muted note" id="dev-note">各渠道逐日曝光。接口对区间跨度有 90 天上限。</div>
   </div>
 
   <div class="panel">

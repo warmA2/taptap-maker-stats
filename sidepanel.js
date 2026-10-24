@@ -1017,3 +1017,68 @@ initSettings();
 setInterval(() => { refresh(); refreshInjectStatus(); refreshCredits(); refreshCapture(); }, 10000);
 setInterval(() => { renderSessions(); }, 5000);
 setInterval(() => { refreshCharts(); }, 30000);
+
+/* ================= 项目收入（开发者后台 · 摘要） =================
+ * 只读近 7 天的预估广告收益 + 曝光/浏览。
+ * 拉不到就显示「—」和原因，绝不显示 ¥0.00 —— 0 和「没拉到」必须分开。
+ */
+function incYmd(n) {
+  const d = new Date();
+  d.setHours(12, 0, 0, 0);
+  d.setDate(d.getDate() + n);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function incError(msg) {
+  const box = $('inc-body');
+  if (!box) return;
+  box.innerHTML = '<div class="inc-err">' + esc(msg)
+    + (/未登录/.test(msg)
+      ? '<br><a href="https://developer.taptap.cn" target="_blank" rel="noreferrer">打开开发者后台登录 ↗</a>'
+      : '') + '</div>';
+}
+
+function incRender(ad, st) {
+  const hasData = ad && ad.dates && ad.dates.length;
+  $('inc-total').textContent = hasData ? '¥' + Number(ad.total || 0).toFixed(2) : '–';
+  $('inc-sub').textContent = hasData
+    ? 'T+1 预估' + (ad.pendingDays ? ' · ' + ad.pendingDays + ' 天待结算' : '')
+    : '近 7 天没有已结算收益';
+  $('inc-perday').textContent = hasData && ad.perDay != null ? '¥' + Number(ad.perDay).toFixed(2) : '–';
+  $('inc-imp').textContent = st && st.totals ? fmt(st.totals.impression) : '–';
+  $('inc-pv').textContent = st && st.totals ? fmt(st.totals.detail) : '–';
+}
+
+function loadIncome(force) {
+  const box = $('inc-body');
+  if (!box) return;
+  query('devApps', { force: !!force }, (res) => {
+    const d = res && res.ok ? res.data : null;
+    const list = (d && d.list) || [];
+    if (!list.length) {
+      incError((d && d.error) || (res && res.error) || '开发者后台读不到应用');
+      return;
+    }
+    chrome.storage.local.get('devPick', (o) => {
+      const app = list.find((a) => String(a.id) === String(o && o.devPick)) || list[0];
+      let ad = null;
+      let st = null;
+      const done = () => {
+        if (ad === null || st === null) return;
+        if (ad.error) { incError(ad.error); return; }
+        incRender(ad, st.error ? null : st);
+      };
+      query('devAd', { appId: app.id, devId: app.devId, start: incYmd(-7), end: incYmd(-1) }, (r1) => {
+        ad = (r1 && r1.ok ? r1.data : null) || { error: (r1 && r1.error) || '收益拉取失败' };
+        done();
+      });
+      query('devStats', { appId: app.id, devId: app.devId, start: incYmd(-6), end: incYmd(0) }, (r2) => {
+        st = (r2 && r2.ok ? r2.data : null) || { error: (r2 && r2.error) || '表现拉取失败' };
+        done();
+      });
+    });
+  });
+}
+
+loadIncome();
+setInterval(() => loadIncome(true), 10 * 60 * 1000);

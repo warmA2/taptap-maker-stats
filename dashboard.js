@@ -272,3 +272,314 @@ query('raw', null, (res) => {
   if (!rows.length) { box.textContent = '暂无捕获事件。打开 maker.taptap.cn 对话几次后回来查看。'; return; }
   box.textContent = rows.map((r) => JSON.stringify(r)).join('\n');
 });
+
+/* ==================================================================
+ * 项目收入 / 商店数据表现
+ *
+ * 数据来自 developer.taptap.cn（Cookie 会话，控制台的私有接口）。
+ * 三条铁律：
+ *   ① 拉不到就显示「—」和错误原文，绝不显示 0
+ *   ② 广告（T+1）与曝光（含今天）区间口径不同，各走各的
+ *   ③ 两块分别兜错，一个挂了另一个照常显示
+ * ================================================================== */
+
+const DEV = { apps: [], appId: '', adN: 7, devN: 7 };
+
+// 折线取色：按固定顺序连续分配（相邻两色可辨性只对连续取用成立）
+const DEV_PALETTE = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100'];
+
+const ymd = (d) => d.getFullYear() + '-'
+  + String(d.getMonth() + 1).padStart(2, '0') + '-'
+  + String(d.getDate()).padStart(2, '0');
+
+function dayShift(n) {
+  const d = new Date();
+  d.setHours(12, 0, 0, 0);   // 用正午，避开时区/夏令时边界
+  d.setDate(d.getDate() + n);
+  return d;
+}
+
+/* 广告是 T+1：区间终点固定是昨天，没有「今天」 */
+function rangeOf(kind, n) {
+  const endOff = kind === 'ad' ? -1 : 0;
+  const startOff = kind === 'ad' ? -n : -(n - 1);
+  return { start: ymd(dayShift(startOff)), end: ymd(dayShift(endOff)) };
+}
+
+const money = (n) => (n == null ? '–' : '¥' + Number(n).toFixed(2));
+
+function resetCanvas(cv, text) {
+  if (!cv) return;
+  const dpr = window.devicePixelRatio || 1;
+  const rect = cv.getBoundingClientRect();
+  const W = rect.width || 800;
+  const H = rect.height || 200;
+  cv.width = W * dpr;
+  cv.height = H * dpr;
+  const g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, W, H);
+  if (text) {
+    g.fillStyle = '#9ca3af';
+    g.font = '12px "Microsoft YaHei", sans-serif';
+    g.textAlign = 'center';
+    g.fillText(text, W / 2, H / 2);
+    g.textAlign = 'left';
+  }
+}
+
+/* Y 轴上界取「好数字」：4 等分后刻度落在 1 / 2 / 5 的整数倍上 */
+function niceMax(v) {
+  if (!(v > 0)) return 1;
+  const raw = v / 4;
+  const exp = Math.floor(Math.log10(raw));
+  const base = Math.pow(10, exp);
+  const f = raw / base;
+  const step = f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10;
+  return step * base * 4;
+}
+
+/* 多系列折线。opts: { unit, money } */
+function drawLines(cv, labels, series, opts) {
+  if (!cv) return;
+  const o = opts || {};
+  const dpr = window.devicePixelRatio || 1;
+  const rect = cv.getBoundingClientRect();
+  const W = rect.width || 800;
+  const H = rect.height || 200;
+  cv.width = W * dpr;
+  cv.height = H * dpr;
+  const g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, W, H);
+
+  const n = labels.length;
+  if (!n || !series.length) { resetCanvas(cv, '暂无数据'); return; }
+
+  const pad = { l: 56, r: 14, t: 14, b: 26 };
+  const iw = W - pad.l - pad.r;
+  const ih = H - pad.t - pad.b;
+  let maxY = 0;
+  series.forEach((s) => s.values.forEach((v) => { if (v > maxY) maxY = v; }));
+  maxY = niceMax(maxY);
+
+  const x = (i) => pad.l + (n === 1 ? iw / 2 : (i / (n - 1)) * iw);
+  const y = (v) => pad.t + ih - (v / maxY) * ih;
+
+  // 网格 + Y 轴刻度
+  g.font = '11px "Microsoft YaHei", sans-serif';
+  for (let s = 0; s <= 4; s++) {
+    const yy = pad.t + ih - (s / 4) * ih;
+    g.strokeStyle = '#eef2f7';
+    g.lineWidth = 1;
+    g.beginPath();
+    g.moveTo(pad.l, yy);
+    g.lineTo(W - pad.r, yy);
+    g.stroke();
+    const val = (maxY * s) / 4;
+    g.fillStyle = '#9ca3af';
+    g.fillText(o.money ? '¥' + val.toFixed(val < 10 ? 2 : 0) : fmt(Math.round(val)), 4, yy + 4);
+  }
+
+  // 折线（单条时带面积）
+  series.forEach((s) => {
+    if (s.fill) {
+      const grad = g.createLinearGradient(0, pad.t, 0, pad.t + ih);
+      grad.addColorStop(0, s.color + '33');
+      grad.addColorStop(1, s.color + '03');
+      g.beginPath();
+      g.moveTo(x(0), pad.t + ih);
+      s.values.forEach((v, i) => g.lineTo(x(i), y(v)));
+      g.lineTo(x(s.values.length - 1), pad.t + ih);
+      g.closePath();
+      g.fillStyle = grad;
+      g.fill();
+    }
+    g.strokeStyle = s.color;
+    g.lineWidth = 2;
+    g.lineJoin = 'round';
+    g.beginPath();
+    s.values.forEach((v, i) => { if (i === 0) g.moveTo(x(i), y(v)); else g.lineTo(x(i), y(v)); });
+    g.stroke();
+    // 点少的时候画点，否则线会像断的
+    if (n <= 31) {
+      g.fillStyle = s.color;
+      s.values.forEach((v, i) => {
+        g.beginPath();
+        g.arc(x(i), y(v), 2.4, 0, Math.PI * 2);
+        g.fill();
+      });
+    }
+  });
+
+  // X 轴日期
+  g.fillStyle = '#9ca3af';
+  g.textAlign = 'center';
+  const step = Math.max(1, Math.ceil(n / 8));
+  labels.forEach((d, i) => {
+    if (i % step !== 0 && i !== n - 1) return;
+    g.fillText(String(d).slice(5), x(i), H - 8);
+  });
+  g.textAlign = 'left';
+}
+
+/* ---------------- 应用列表 ---------------- */
+function curApp() {
+  return DEV.apps.find((a) => String(a.id) === String(DEV.appId)) || null;
+}
+
+function fillAppSelects() {
+  const opts = DEV.apps.map((a) =>
+    '<option value="' + esc(String(a.id)) + '">' + esc(a.title)
+    + (a.devName ? '（' + esc(a.devName) + '）' : '') + '</option>').join('');
+  ['ad-app', 'dev-app'].forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    el.innerHTML = opts || '<option value="">没有可用应用</option>';
+    el.value = DEV.appId;
+  });
+}
+
+function loadDevApps() {
+  query('devApps', {}, (res) => {
+    const d = res && res.ok ? res.data : null;
+    const list = (d && d.list) || [];
+    if (!list.length) {
+      const msg = (d && d.error) || (res && res.error) || '读不到开发者后台的应用列表';
+      adError(msg);
+      devError(msg);
+      ['ad-app', 'dev-app'].forEach((id) => {
+        const el = $(id);
+        if (el) el.innerHTML = '<option value="">无应用</option>';
+      });
+      return;
+    }
+    DEV.apps = list;
+    chrome.storage.local.get('devPick', (o) => {
+      const saved = o && o.devPick;
+      const hit = DEV.apps.find((a) => String(a.id) === String(saved)) || DEV.apps[0];
+      DEV.appId = hit ? String(hit.id) : '';
+      fillAppSelects();
+      loadAd();
+      loadDev();
+    });
+  });
+}
+
+function switchApp(id) {
+  const v = $(id).value;
+  if (!v || v === DEV.appId) return;
+  DEV.appId = v;
+  chrome.storage.local.set({ devPick: v });
+  const other = id === 'ad-app' ? 'dev-app' : 'ad-app';
+  if ($(other)) $(other).value = v;
+  loadAd();
+  loadDev();
+}
+
+/* ---------------- 广告收益 ---------------- */
+function adError(msg) {
+  ['ad-total', 'ad-perday', 'ad-settled', 'ad-pending'].forEach((id) => { $(id).textContent = '—'; });
+  const note = $('ad-note');
+  note.className = 'muted note err';
+  note.innerHTML = esc(msg) + (/未登录/.test(msg)
+    ? ' · <a href="https://developer.taptap.cn" target="_blank" rel="noreferrer">打开开发者后台登录</a>' : '');
+  resetCanvas($('ad-chart'), '拉取失败，不显示数字');
+}
+
+function loadAd(force) {
+  const app = curApp();
+  if (!app) return;
+  const r = rangeOf('ad', DEV.adN);
+  ['ad-total', 'ad-perday', 'ad-settled', 'ad-pending'].forEach((id) => { $(id).textContent = '…'; });
+  $('ad-note').className = 'muted note';
+  $('ad-note').textContent = '读取中…';
+  query('devAd', { appId: app.id, devId: app.devId, start: r.start, end: r.end, force: !!force }, (res) => {
+    const d = res && res.ok ? res.data : null;
+    if (!d || d.error) { adError((d && d.error) || (res && res.error) || '拉取失败'); return; }
+
+    const has = d.values && d.values.length;
+    // 没有已结算的天就显示「—」：¥0.00 会被读成「真的没赚到」，那不是同一件事
+    $('ad-total').textContent = has ? money(d.total) : '–';
+    $('ad-perday').textContent = has ? money(d.perDay) : '–';
+    $('ad-settled').textContent = d.days == null ? '–' : d.days + ' 天';
+    $('ad-pending').textContent = d.pendingDays == null ? '–' : d.pendingDays + ' 天';
+
+    const note = $('ad-note');
+    note.className = 'muted note';
+    if (!has) {
+      note.textContent = '这段时间没有已结算的收益（' + r.start + ' ~ ' + r.end + '）。'
+        + (d.pendingDays ? '还有 ' + d.pendingDays + ' 天未结算。' : '');
+      resetCanvas($('ad-chart'), '这段时间没有已结算的广告收益');
+      return;
+    }
+    note.textContent = r.start + ' ~ ' + r.end + ' · 逐日预估之和；日均按已结算的 ' + d.days + ' 天算'
+      + (d.pendingDays ? '，另有 ' + d.pendingDays + ' 天未结算（不计入）' : '') + '。';
+    drawLines($('ad-chart'), d.dates, [{ name: '预估收益', values: d.values, color: DEV_PALETTE[0], fill: true }], { money: true });
+  });
+}
+
+/* ---------------- 商店数据表现 ---------------- */
+function devError(msg) {
+  ['dev-imp', 'dev-pv', 'dev-ctr', 'dev-cvr'].forEach((id) => { $(id).textContent = '—'; });
+  const note = $('dev-note');
+  note.className = 'muted note err';
+  note.innerHTML = esc(msg) + (/未登录/.test(msg)
+    ? ' · <a href="https://developer.taptap.cn" target="_blank" rel="noreferrer">打开开发者后台登录</a>' : '');
+  resetCanvas($('dev-chart'), '拉取失败，不显示数字');
+}
+
+function loadDev(force) {
+  const app = curApp();
+  if (!app) return;
+  const r = rangeOf('dev', DEV.devN);
+  ['dev-imp', 'dev-pv', 'dev-ctr', 'dev-cvr'].forEach((id) => { $(id).textContent = '…'; });
+  $('dev-note').className = 'muted note';
+  $('dev-note').textContent = '读取中…';
+  query('devStats', { appId: app.id, devId: app.devId, start: r.start, end: r.end, force: !!force }, (res) => {
+    const d = res && res.ok ? res.data : null;
+    if (!d || d.error) { devError((d && d.error) || (res && res.error) || '拉取失败'); return; }
+    const t = d.totals || {};
+    const has = d.dates && d.dates.length;
+    // 同样：接口返回空 ≠ 曝光为 0，显示「—」
+    $('dev-imp').textContent = has ? fmt(t.impression) : '–';
+    $('dev-pv').textContent = has ? fmt(t.detail) : '–';
+    $('dev-ctr').textContent = has ? (t.clickRate || '–') : '–';
+    $('dev-cvr').textContent = has ? (t.convertRate || '–') : '–';
+
+    const note = $('dev-note');
+    note.className = 'muted note';
+    if (!has) {
+      note.textContent = '这段时间没有曝光数据（' + r.start + ' ~ ' + r.end + '）。';
+      resetCanvas($('dev-chart'), '这段时间没有曝光数据');
+      return;
+    }
+    const series = (d.channels || []).map((ch, i) => ({
+      name: ch.name, values: ch.values, color: DEV_PALETTE[i % DEV_PALETTE.length],
+    }));
+    drawLines($('dev-chart'), d.dates, series, {});
+    note.className = 'muted note';
+    note.innerHTML = '<div class="legend">' + (d.channels || []).map((ch, i) =>
+      '<span><i style="background:' + DEV_PALETTE[i % DEV_PALETTE.length] + '"></i>' + esc(ch.name) + '</span>').join('')
+      + '</div>' + r.start + ' ~ ' + r.end + ' · 曝光按渠道拆分；点击率与转化率是逐日比率的平均（和后台页面同口径）。';
+  });
+}
+
+/* ---------------- 交互 ---------------- */
+['ad-app', 'dev-app'].forEach((id) => {
+  const el = $(id);
+  if (el) el.addEventListener('change', () => switchApp(id));
+});
+['ad-seg', 'dev-seg'].forEach((id) => {
+  const box = $(id);
+  if (!box) return;
+  box.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-n]');
+    if (!btn) return;
+    box.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === btn));
+    const n = Number(btn.dataset.n) || 7;
+    if (id === 'ad-seg') { DEV.adN = n; loadAd(true); } else { DEV.devN = n; loadDev(true); }
+  });
+});
+
+loadDevApps();

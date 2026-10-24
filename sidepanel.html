@@ -126,6 +126,18 @@
   }
   .panel.dragging .panel-title { cursor: grabbing; }
 
+  /* ===== 项目收入 ===== */
+  .inc-top { display: flex; align-items: baseline; gap: 8px; margin-bottom: 9px; }
+  .inc-v { font-size: 25px; font-weight: 800; color: #0f172a; font-variant-numeric: tabular-nums; letter-spacing: -.4px; }
+  .inc-sub { font-size: 10.5px; color: var(--ink-3); flex: 1; line-height: 1.4; }
+  .inc-rows { display: flex; flex-direction: column; gap: 6px; }
+  .inc-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 11.5px; color: var(--ink-2); }
+  .inc-row b { color: #1f2937; font-variant-numeric: tabular-nums; font-weight: 700; }
+  .inc-foot { margin-top: 9px; padding-top: 8px; border-top: 1px solid #f1f4f9; font-size: 11px; }
+  .inc-foot a { color: #4f46e5; }
+  .inc-err { font-size: 11.5px; color: #b91c1c; line-height: 1.65; }
+  .inc-err a { color: #b91c1c; text-decoration: underline; }
+
   /* ===== 我的积分 ===== */
   .balance { display: flex; align-items: stretch; gap: 9px; flex-wrap: wrap; }
   .hero {
@@ -456,12 +468,28 @@
   </section>
 
   <section class="panel" data-mod="today">
-    <div class="panel-title"><span><span class="ic">📈</span>今日概览</span> <span class="live" id="foot">每 10 秒自动刷新</span></div>
-    <div class="stat-grid">
+    <div class="panel-title"><span><span class="ic">📈</span>今日概览</span> <span class="live" id="foot">每 10 秒自动刷新</span></div>    <div class="stat-grid">
       <div class="stat in"><div class="v" id="today-inputs">–</div><div class="l">今日输入</div></div>
       <div class="stat cost"><div class="v" id="today-credits">–</div><div class="l">今日消耗</div></div>
       <div class="stat in"><div class="v" id="all-inputs">–</div><div class="l">累计输入</div></div>
       <div class="stat cost"><div class="v" id="all-credits">–</div><div class="l">累计消耗</div></div>
+    </div>
+  </section>
+
+  <!-- 项目收入：游戏内广告（T+1），数据来自开发者后台 -->
+  <section class="panel" data-mod="income">
+    <div class="panel-title"><span><span class="ic">💰</span>项目收入</span> <span class="live">近 7 天 · 预估</span></div>
+    <div id="inc-body">
+      <div class="inc-top">
+        <div class="inc-v" id="inc-total">–</div>
+        <div class="inc-sub" id="inc-sub">读取中…</div>
+      </div>
+      <div class="inc-rows">
+        <div class="inc-row"><span>日均</span><b id="inc-perday">–</b></div>
+        <div class="inc-row"><span>曝光</span><b id="inc-imp">–</b></div>
+        <div class="inc-row"><span>商店页浏览</span><b id="inc-pv">–</b></div>
+      </div>
+      <div class="inc-foot"><a href="dashboard.html" target="_blank">看完整趋势 ↗</a></div>
     </div>
   </section>
 

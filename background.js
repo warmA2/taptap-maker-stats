@@ -2084,6 +2084,190 @@ async function queryCreditBreakdown() {
   };
 }
 
+/* ================= 开发者后台：商店表现 + 广告收益 =================
+ *
+ * 数据来自 developer.taptap.cn —— 控制台自己调的私有接口，官方没承诺过，
+ * 改版就可能失效。鉴权是纯 Cookie（credentials:'include' 实测 200，omit 是 401），
+ * 所以只要 host_permissions 里有这个域，不用过户凭证、也不用续期。
+ *
+ * 两条硬规矩：
+ *   ① 拉不到就报错，**绝不显示成 0** —— 0 是「真的没人看 / 真的没赚到」，
+ *      和「接口挂了」是两件完全不同的事。
+ *   ② 各面板独立兜错：广告挂了不影响曝光，反之亦然。
+ */
+
+const DEV_API = 'https://developer.taptap.cn/api';
+const DEV_CHANNELS = [
+  { id: 'index_feed', name: '首页推荐' },
+  { id: 'search', name: '搜索' },
+  { id: 'top', name: '排行榜' },
+  { id: 'other', name: '其他' },
+];
+const DEV_APPS_TTL = 30 * 60 * 1000;   // 应用列表：半小时
+const DEV_STATS_TTL = 5 * 60 * 1000;   // 区间数据：5 分钟
+
+const devRound2 = (n) => Math.round(n * 100) / 100;
+const devSumBy = (list, key) => (list || []).reduce((a, x) => a + (Number(x[key]) || 0), 0);
+
+async function devGet(path) {
+  let res;
+  try {
+    res = await fetch(DEV_API + path, {
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    });
+  } catch (e) {
+    throw new Error('连不上开发者后台（网络或代理问题）');
+  }
+  if (res.status === 401 || res.status === 403) {
+    throw new Error('开发者后台未登录 —— 先在本机浏览器打开一次 developer.taptap.cn');
+  }
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  let body = null;
+  try { body = await res.json(); } catch (e) { throw new Error('接口返回的不是 JSON'); }
+  if (!body || body.success !== true) {
+    const inner = body && body.data;
+    throw new Error((inner && (inner.msg || inner.error)) || '接口返回失败');
+  }
+  return body.data;
+}
+
+/**
+ * 区间比率 = 逐日比率求平均。
+ * 这是拿后台页面上的数字反推出来的：逐日求平均能和后台逐位对上，
+ * 「求和再相除」和接口自带的 overview 都会差一点点 —— 那种差最难解释。
+ * 某天给的是 '-' 就跳过，别当 0 拉低平均。
+ */
+function devAvgRate(rows, key) {
+  const vals = (rows || [])
+    .map((r) => parseFloat(String(r[key]).replace('%', '')))
+    .filter((n) => Number.isFinite(n));
+  if (!vals.length) return null;
+  return (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2) + '%';
+}
+
+async function fetchDevApps() {
+  const devs = await devGet('/developer/v1/list');
+  const out = [];
+  for (const d of (devs && devs.list) || []) {
+    const page = await devGet('/app/v2/list?developer_id=' + d.id + '&page=1&pagesize=50&sort_by_updated_at=true');
+    for (const app of (page && page.list) || []) {
+      out.push({
+        id: app.id,
+        devId: d.id,
+        devName: d.name || '',
+        title: app.title || ('应用 ' + app.id),
+        icon: (app.icon && (app.icon.medium_url || app.icon.url)) || '',
+      });
+    }
+  }
+  return out;
+}
+
+/* 应用列表：拉失败时保留上一次的清单，只记错误 —— 别把能用的数据冲掉 */
+async function queryDevApps(force) {
+  const got = await chrome.storage.local.get('devApps');
+  const c = got.devApps;
+  // 拿到过清单就缓存 30 分钟；只拿到错误就缓存 5 分钟（别每开一次侧边栏都去撞一次 401）
+  const ttl = (c && (c.list || []).length) ? DEV_APPS_TTL : 5 * 60 * 1000;
+  const fresh = c && (Date.now() - (c.at || 0) < ttl) && ((c.list || []).length || c.error);
+  if (!force && fresh) return { list: c.list, at: c.at, error: c.error || null, cached: true };
+  try {
+    const list = await fetchDevApps();
+    const rec = { at: Date.now(), list, error: null };
+    await chrome.storage.local.set({ devApps: rec });
+    return Object.assign({ cached: false }, rec);
+  } catch (e) {
+    const rec = { at: Date.now(), list: (c && c.list) || [], error: String((e && e.message) || e) };
+    await chrome.storage.local.set({ devApps: rec });
+    return Object.assign({ cached: false }, rec);
+  }
+}
+
+/**
+ * 曝光 / 浏览 / 点击率 / 转化率 + 各渠道逐日曝光。
+ * 不带 platform 时接口只返回安卓（实测），所以这是安卓口径。
+ * pv 接口硬限制跨度 ≤ 90 天，超了直接 400 —— 所以区间最长给 90 天。
+ */
+async function fetchDevExposure(appId, devId, start, end) {
+  const q = 'developer_id=' + devId + '&app_id=' + appId + '&start_date=' + start + '&end_date=' + end;
+  const [pos, pv] = await Promise.all([
+    devGet('/dashboard/v2/stats-by-day/position/cn?' + q),
+    devGet('/dashboard/v3/stats-by-day/pv/cn?' + q),
+  ]);
+  const rows = (pos && pos.list) || [];
+  const dates = rows.map((r) => r.date).sort();
+
+  // 四个渠道并发拉，串行要等四轮往返
+  const ones = await Promise.all(DEV_CHANNELS.map((ch) =>
+    devGet('/dashboard/v2/stats-by-day/position/cn?' + q + '&position=' + ch.id)));
+  // 按日期对齐，缺的补 0；不对齐几条线的 x 轴会错位
+  const channels = DEV_CHANNELS.map((ch, i) => {
+    const byDate = new Map(((ones[i] && ones[i].list) || []).map((r) => [r.date, Number(r.impression_cnt) || 0]));
+    return { id: ch.id, name: ch.name, values: dates.map((d) => byDate.get(d) || 0) };
+  });
+
+  return {
+    dates,
+    channels,
+    totals: {
+      impression: devSumBy(rows, 'impression_cnt'),
+      detail: devSumBy(pv && pv.list, 'pv_from_total'),
+      clickRate: devAvgRate(rows, 'click_rate'),
+      convertRate: devAvgRate(rows, 'convert_detail_rate'),
+    },
+  };
+}
+
+/**
+ * 广告收益：逐日预估（元），T+1。
+ * 参数名和上面不一样 —— 这里是 start_time / end_time，不是 start_date / end_date。
+ * 未结算那天接口给的是 "" 而不是 "0"：0 是「真的没赚到」，"" 是「还没出」，
+ * 混起来会显示成 ¥0.00 并在图尾补出一段假暴跌。
+ */
+async function fetchDevAd(appId, devId, start, end) {
+  const q = 'developer_id=' + devId + '&app_id=' + appId + '&start_time=' + start + '&end_time=' + end;
+  const d = await devGet('/mini-app/v1/ad/payout-report-data?' + q);
+  const rows = (d && d.list) || [];
+  const dated = rows
+    .filter((r) => r.revenue !== '' && r.revenue != null && Number.isFinite(Number(r.revenue)))
+    .sort((a, b) => (a.date < b.date ? -1 : 1));
+  const dates = dated.map((r) => r.date);
+  const values = dated.map((r) => Number(r.revenue));
+  const total = devRound2(values.reduce((a, b) => a + b, 0));
+  return {
+    dates,
+    values,
+    total,
+    pendingDays: rows.length - dated.length,
+    perDay: dates.length ? devRound2(total / dates.length) : null,
+    days: dates.length,
+  };
+}
+
+/* 区间数据通用包装：命中原样返回，换应用/换区间就重拉，失败只留错误 */
+async function devCached(key, msg, fetcher) {
+  const appId = msg.appId, devId = msg.devId, start = msg.start, end = msg.end;
+  if (!appId || !devId || !start || !end) return { error: '缺少应用或区间参数' };
+  const got = await chrome.storage.local.get(key);
+  const c = got[key];
+  const same = c && c.appId === appId && c.start === start && c.end === end;
+  if (!msg.force && same && !c.error && Date.now() - (c.at || 0) < DEV_STATS_TTL) return c;
+  try {
+    const data = await fetcher(appId, devId, start, end);
+    const rec = Object.assign({ at: Date.now(), appId, devId, start, end, error: null }, data);
+    await chrome.storage.local.set({ [key]: rec });
+    return rec;
+  } catch (e) {
+    const rec = { at: Date.now(), appId, devId, start, end, error: String((e && e.message) || e) };
+    await chrome.storage.local.set({ [key]: rec });
+    return rec;
+  }
+}
+
+function queryDevStats(msg) { return devCached('devStats', msg, fetchDevExposure); }
+function queryDevAd(msg) { return devCached('devAd', msg, fetchDevAd); }
+
 async function queryTransactions(limit) {
   const all = await txGetAll('txns');
   const items = [];
@@ -2248,6 +2432,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       : q === 'transactions' ? queryTransactions(msg.limit)
       : q === 'injectStatus' ? queryInjectStatus()
       : q === 'prompts' ? queryPrompts(msg.chatId, msg.limit)
+      : q === 'devApps' ? queryDevApps(msg.force)
+      : q === 'devStats' ? queryDevStats(msg)
+      : q === 'devAd' ? queryDevAd(msg)
       : null);
     const p = needBackfill ? ensureBackfill().then(run) : run();
     if (p) {

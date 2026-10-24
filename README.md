@@ -3,7 +3,7 @@
 > 记录你在 [TapTap 制造](https://maker.taptap.cn/) 的**每一次输入**，按**会话**和**项目**统计 token 与积分消耗，侧边栏常驻显示**当前登录用户的各项积分余额**。
 > 一个纯本地的浏览器扩展 —— 数据只存在你自己的浏览器里，不上传任何服务器。
 
-![version](https://img.shields.io/badge/version-0.9.66-blue)
+![version](https://img.shields.io/badge/version-0.9.67-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/Chrome%20%2F%20Edge-114%2B-lightgrey)
 ![manifest](https://img.shields.io/badge/Manifest-V3-orange)
@@ -33,6 +33,7 @@
 | 注入状态 | 顶部显示当前页面是否已生效（未注入会提示刷新） |
 | 我的积分 | 当前登录用户的完整积分构成：通用积分（长期 + 到期）、基础积分、付费积分、周期积分、会员卡权益、待发放批次；每 60 秒自动更新 |
 | 今日概览 | 今日消耗、输入次数、累计消耗 |
+| 项目收入 | 近 7 天游戏内广告的**预估收益**、日均、曝光、商店页浏览。数据来自开发者后台，T+1 结算 |
 | 按项目消耗 | 每个项目的输入次数与积分消耗，可展开看会话明细 |
 | 每日消耗曲线 | 近 24 小时逐时消耗柱状图 |
 | 近 7 天消耗 | 最近 7 天每天一个点 |
@@ -216,6 +217,7 @@ TapTap 制造 · 任务完成
 | `scripting` | 向 maker.taptap.cn 注入捕获脚本 |
 | `downloads` | 仅在你点「导出诊断」时下载 JSON |
 | `host_permissions: https://maker.taptap.cn/*` | 仅在该域名下读取积分与消息 |
+| `host_permissions: https://developer.taptap.cn/*` | 仅用于读「项目收入 / 商店数据表现」；沿用你已登录的后台会话，不额外索要账号 |
 | `host_permissions: https://ntfy.sh/*`、`https://api.day.app/*` | 仅在你启用完成通知并选了对应通道时，往这两个推送服务发一条消息 |
 | `optional_host_permissions` | 你自己填的 Webhook / 自建服务器域名，保存时才弹窗申请，你拒绝就发不出去 |
 
@@ -284,6 +286,14 @@ TapTap 制造 · 任务完成
 
 本项目为**非官方**第三方工具，与 TapTap / 心动网络无任何关联，也未获其授权或背书。
 它只读取你**自己账号**在你**自己浏览器**里可见的数据，用于个人统计。请自行遵守平台用户协议；因使用本扩展产生的任何后果由使用者自行承担。
+
+---
+
+## 致谢
+
+「项目收入」与「商店数据表现」两块的数据接口口径，来自 [boomber3/taptap-maker-credits](https://github.com/boomber3/taptap-maker-credits)（MIT）。原作者把几个容易踩的坑都啃下来了 —— 四个数只能靠逐日求平均才对得上后台、`revenue: ""` 不能当 0、广告是 T+1 所以没有「今天」。这些结论直接沿用，省了很多试错。
+
+本项目的实现是重新写的（并入自己的 UI 与存储，不引入其构建产物），细节见 [THIRD-PARTY.md](THIRD-PARTY.md)。
 
 ---
 
