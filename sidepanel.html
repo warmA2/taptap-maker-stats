@@ -127,6 +127,24 @@
   .panel.dragging .panel-title { cursor: grabbing; }
 
   /* ===== 项目收入 ===== */
+  .inc-appbar { position: relative; display: flex; margin-bottom: 9px; }
+  .inc-sel {
+    width: 100%; min-width: 0; font-family: inherit; font-size: 11.5px; color: #1f2937;
+    padding: 5px 24px 5px 8px; border: 1px solid #e3e9f2; border-radius: 7px; background: #fff;
+    appearance: none; -webkit-appearance: none; cursor: pointer;
+    text-overflow: ellipsis; white-space: nowrap; overflow: hidden;
+  }
+  .inc-sel:hover { border-color: #cbd6e6; }
+  .inc-sel:focus { outline: none; border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79, 70, 229, .12); }
+  .inc-appbar.multi::after {
+    content: "▾"; position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    font-size: 10px; color: var(--ink-3); pointer-events: none;
+  }
+  .inc-appname {
+    flex: 1; min-width: 0; font-size: 11.5px; color: var(--ink-2);
+    background: #f7f9fc; border: 1px solid #eef2f8; border-radius: 7px; padding: 5px 8px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
   .inc-top { display: flex; align-items: baseline; gap: 8px; margin-bottom: 9px; }
   .inc-v { font-size: 25px; font-weight: 800; color: #0f172a; font-variant-numeric: tabular-nums; letter-spacing: -.4px; }
   .inc-sub { font-size: 10.5px; color: var(--ink-3); flex: 1; line-height: 1.4; }
@@ -478,7 +496,8 @@
 
   <!-- 项目收入：游戏内广告（T+1），数据来自开发者后台 -->
   <section class="panel" data-mod="income">
-    <div class="panel-title"><span><span class="ic">💰</span>项目收入</span> <span class="live">近 7 天 · 预估</span></div>
+    <div class="panel-title"><span><span class="ic">💰</span>项目收入</span> <span class="live">近 7 天</span></div>
+    <div class="inc-appbar" id="inc-appbar"><span class="inc-appname">读取中…</span></div>
     <div id="inc-body">
       <div class="inc-top">
         <div class="inc-v" id="inc-total">–</div>

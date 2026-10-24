@@ -583,3 +583,17 @@ function loadDev(force) {
 });
 
 loadDevApps();
+
+// 侧边栏里切了项目，这个页面跟着换（两边共用一个 devPick）
+if (chrome.storage && chrome.storage.onChanged) {
+  chrome.storage.onChanged.addListener((ch, area) => {
+    if (area !== 'local' || !ch.devPick) return;
+    const nv = ch.devPick.newValue;
+    if (!nv || String(nv) === String(DEV.appId)) return;
+    if (!DEV.apps.some((a) => String(a.id) === String(nv))) return;   // 列表里没有就不动
+    DEV.appId = String(nv);
+    ['ad-app', 'dev-app'].forEach((id) => { const el = $(id); if (el) el.value = DEV.appId; });
+    loadAd();
+    loadDev();
+  });
+}

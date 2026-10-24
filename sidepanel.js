@@ -1020,13 +1020,30 @@ setInterval(() => { refreshCharts(); }, 30000);
 
 /* ================= 项目收入（开发者后台 · 摘要） =================
  * 只读近 7 天的预估广告收益 + 曝光/浏览。
- * 拉不到就显示「—」和原因，绝不显示 ¥0.00 —— 0 和「没拉到」必须分开。
+ * 三条规矩：
+ *   ① 拉不到就显示「—」和原因，绝不显示 ¥0.00 —— 0 和「没拉到」必须分开
+ *   ② 卡片上必须写清读的是哪个项目，不能默默取第一个
+ *   ③ 切换入口就在这里，不用跳去「详细数据」页
  */
 function incYmd(n) {
   const d = new Date();
   d.setHours(12, 0, 0, 0);
   d.setDate(d.getDate() + n);
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+// 数字区固定骨架：错误态会把内容整个换掉，回来时必须能重建
+function incSkeleton() {
+  return '<div class="inc-top">'
+    + '<div class="inc-v" id="inc-total">…</div>'
+    + '<div class="inc-sub" id="inc-sub">读取中…</div>'
+    + '</div>'
+    + '<div class="inc-rows">'
+    + '<div class="inc-row"><span>日均</span><b id="inc-perday">…</b></div>'
+    + '<div class="inc-row"><span>曝光</span><b id="inc-imp">…</b></div>'
+    + '<div class="inc-row"><span>商店页浏览</span><b id="inc-pv">…</b></div>'
+    + '</div>'
+    + '<div class="inc-foot"><a href="dashboard.html" target="_blank">看完整趋势 ↗</a></div>';
 }
 
 function incError(msg) {
@@ -1038,9 +1055,46 @@ function incError(msg) {
       : '') + '</div>';
 }
 
+/* 应用选择器：只有一个应用就显示名字，多于一个才给下拉 */
+let INC_APPS = [];
+
+function incFillApps(list, currentId) {
+  const bar = $('inc-appbar');
+  if (!bar) return;
+  INC_APPS = list;
+  if (!list.length) { bar.className = 'inc-appbar'; bar.innerHTML = '<span class="inc-appname">无应用</span>'; return; }
+
+  if (list.length === 1) {
+    const a = list[0];
+    bar.className = 'inc-appbar';
+    bar.innerHTML = '<span class="inc-appname" title="' + esc(a.title || '') + '">'
+      + esc(a.title || '未命名应用') + (a.devName ? '（' + esc(a.devName) + '）' : '') + '</span>';
+    return;
+  }
+
+  bar.className = 'inc-appbar multi';
+  bar.innerHTML = '<select id="inc-app" class="inc-sel" title="切换项目">'
+    + list.map((a) => {
+      const nm = (a.title || '未命名应用') + (a.devName ? '（' + a.devName + '）' : '');
+      return '<option value="' + esc(String(a.id)) + '"'
+        + (String(a.id) === String(currentId) ? ' selected' : '') + '>' + esc(nm) + '</option>';
+    }).join('')
+    + '</select>';
+
+  const sel = $('inc-app');
+  if (!sel) return;
+  sel.addEventListener('change', () => {
+    // 存成全局的「当前项目」，详细数据页会跟着用同一个
+    chrome.storage.local.set({ devPick: sel.value });
+    loadIncome({ appId: sel.value });
+  });
+}
+
 function incRender(ad, st) {
   const hasData = ad && ad.dates && ad.dates.length;
-  $('inc-total').textContent = hasData ? '¥' + Number(ad.total || 0).toFixed(2) : '–';
+  const totalEl = $('inc-total');
+  if (!totalEl) return;                         // 骨架被错误态替换掉了，放弃这次渲染
+  totalEl.textContent = hasData ? '¥' + Number(ad.total || 0).toFixed(2) : '–';
   $('inc-sub').textContent = hasData
     ? 'T+1 预估' + (ad.pendingDays ? ' · ' + ad.pendingDays + ' 天待结算' : '')
     : '近 7 天没有已结算收益';
@@ -1049,30 +1103,51 @@ function incRender(ad, st) {
   $('inc-pv').textContent = st && st.totals ? fmt(st.totals.detail) : '–';
 }
 
-function loadIncome(force) {
+let INC_SEQ = 0;      // 防止快速切换时旧请求后到覆盖新结果
+
+function loadIncome(opts) {
+  const o = opts || {};
   const box = $('inc-body');
   if (!box) return;
-  query('devApps', { force: !!force }, (res) => {
+
+  // 只有真的没有骨架（首次或上次是错误态）才重建，避免每次刷新闪一下
+  if (!$('inc-total')) box.innerHTML = incSkeleton();
+
+  const seq = ++INC_SEQ;
+  const stillCurrent = () => seq === INC_SEQ;
+
+  query('devApps', { force: !!o.forceApps }, (res) => {
+    if (!stillCurrent()) return;
     const d = res && res.ok ? res.data : null;
     const list = (d && d.list) || [];
     if (!list.length) {
+      if (!INC_APPS.length) {
+        const bar = $('inc-appbar');
+        if (bar) { bar.className = 'inc-appbar'; bar.innerHTML = '<span class="inc-appname">未读到应用</span>'; }
+      }
       incError((d && d.error) || (res && res.error) || '开发者后台读不到应用');
       return;
     }
-    chrome.storage.local.get('devPick', (o) => {
-      const app = list.find((a) => String(a.id) === String(o && o.devPick)) || list[0];
+    chrome.storage.local.get('devPick', (s) => {
+      if (!stillCurrent()) return;
+      const want = o.appId || (s && s.devPick);
+      const app = list.find((a) => String(a.id) === String(want)) || list[0];
+      incFillApps(list, app.id);
+
       let ad = null;
       let st = null;
       const done = () => {
-        if (ad === null || st === null) return;
+        if (!stillCurrent() || ad === null || st === null) return;
         if (ad.error) { incError(ad.error); return; }
+        if (!$('inc-total')) box.innerHTML = incSkeleton();
         incRender(ad, st.error ? null : st);
       };
-      query('devAd', { appId: app.id, devId: app.devId, start: incYmd(-7), end: incYmd(-1) }, (r1) => {
+      const force = !!o.force;
+      query('devAd', { appId: app.id, devId: app.devId, start: incYmd(-7), end: incYmd(-1), force }, (r1) => {
         ad = (r1 && r1.ok ? r1.data : null) || { error: (r1 && r1.error) || '收益拉取失败' };
         done();
       });
-      query('devStats', { appId: app.id, devId: app.devId, start: incYmd(-6), end: incYmd(0) }, (r2) => {
+      query('devStats', { appId: app.id, devId: app.devId, start: incYmd(-6), end: incYmd(0), force }, (r2) => {
         st = (r2 && r2.ok ? r2.data : null) || { error: (r2 && r2.error) || '表现拉取失败' };
         done();
       });
@@ -1081,4 +1156,17 @@ function loadIncome(force) {
 }
 
 loadIncome();
-setInterval(() => loadIncome(true), 10 * 60 * 1000);
+// 10 分钟刷一次数字；应用列表不强制重拉（它自己有 30 分钟缓存）
+setInterval(() => loadIncome({ force: true }), 10 * 60 * 1000);
+
+// 在「详细数据」页切了项目，侧边栏跟着换
+if (chrome.storage && chrome.storage.onChanged) {
+  chrome.storage.onChanged.addListener((ch, area) => {
+    if (area !== 'local' || !ch.devPick) return;
+    const nv = ch.devPick.newValue;
+    if (!nv || String(nv) === String(ch.devPick.oldValue)) return;
+    const sel = $('inc-app');
+    if (sel && String(sel.value) === String(nv)) return;   // 侧边栏自己改的，已经拉过了
+    loadIncome({ appId: nv });
+  });
+}
