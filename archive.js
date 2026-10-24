@@ -159,7 +159,7 @@ function mdRender(src) {
     const h = line.match(/^(#{1,6})\s+(.*)$/);
     if (h) {
       flush();
-      const lv = Math.min(h[1].length + 3, 6);
+      const lv = Math.min(h[1].length + 2, 6);
       out.push(`<h${lv}>${inlineMd(h[2])}</h${lv}>`);
       i++;
       continue;

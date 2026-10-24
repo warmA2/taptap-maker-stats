@@ -62,7 +62,8 @@
     min-height: 0; display: flex; flex-direction: column; overflow: hidden;
   }
   aside { overflow-y: auto; padding: 8px; }
-  .reader { overflow-y: auto; }
+  /* 注意：上面是 overflow: hidden（两轴），这里要用同特异性选择器才盖得住 */
+  section.reader { overflow-y: auto; overflow-x: hidden; }
 
   /* 项目 */
   .proj { margin-bottom: 6px; }
@@ -136,7 +137,8 @@
   .txt.md > *:first-child { margin-top: 0; }
   .txt.md > *:last-child { margin-bottom: 0; }
   .txt.md p { margin: 0 0 9px; }
-  .txt.md h4, .txt.md h5, .txt.md h6 { margin: 13px 0 6px; line-height: 1.4; color: #111827; }
+  .txt.md h3, .txt.md h4, .txt.md h5, .txt.md h6 { margin: 15px 0 7px; line-height: 1.4; color: #111827; }
+  .txt.md h3 { font-size: 15.5px; }
   .txt.md h4 { font-size: 14.5px; }
   .txt.md h5 { font-size: 13.5px; }
   .txt.md h6 { font-size: 13px; color: #374151; }
