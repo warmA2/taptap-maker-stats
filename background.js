@@ -1858,6 +1858,31 @@ function sortModels(rows) {
     .sort((a, b) => b.spent - a.spent || b.count - a.count);
 }
 
+// 同一轮可能被写过 N 条（流式阶段每次落库都是一条快照），归档时按 turnId 收成一轮：
+// 时间取最早、输出取最长、积分取最大（同一笔钱不叠加）
+function mergeTurns(turns) {
+  const out = [];
+  const seen = new Map();
+  for (const t of turns) {
+    const k = t && t.turnId ? String(t.turnId) : '';
+    const hit = k ? seen.get(k) : null;
+    if (hit) {
+      if ((t.ts || 0) && (!hit.ts || t.ts < hit.ts)) hit.ts = t.ts;
+      if (String(t.outText || '').length > String(hit.outText || '').length) hit.outText = t.outText;
+      hit.credits = Math.max(hit.credits || 0, t.credits || 0);
+      hit.model = hit.model || t.model || null;
+      hit.text = hit.text || t.text || '';
+      hit.done = !!(hit.done || t.done);
+      hit.endedTs = Math.max(hit.endedTs || 0, t.endedTs || 0) || null;
+      continue;
+    }
+    const c = { ...t };
+    if (k) seen.set(k, c);
+    out.push(c);
+  }
+  return out;
+}
+
 // 归档页：把全部轮次按 项目 → 会话 两层摆好，交给 archive.html 渲染
 // 注意：这里给的是原文（输入 + 输出），一次全量返回，数据量在几万字级别，够用
 async function queryArchive() {
@@ -1882,8 +1907,9 @@ async function queryArchive() {
   }
 
   const projects = new Map();
-  for (const [cid, turns] of Object.entries(byChat)) {
-    turns.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  for (const [cid, rawTurns] of Object.entries(byChat)) {
+    rawTurns.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+    const turns = mergeTurns(rawTurns);
     const pid = chatProject[cid] || '';
     const key = pid || '__none__';
     if (!projects.has(key)) {
