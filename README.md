@@ -3,7 +3,7 @@
 > 记录你在 [TapTap 制造](https://maker.taptap.cn/) 的**每一次输入**，按**会话**和**项目**统计 token 与积分消耗，侧边栏常驻显示**当前登录用户的各项积分余额**。
 > 一个纯本地的浏览器扩展 —— 数据只存在你自己的浏览器里，不上传任何服务器。
 
-![version](https://img.shields.io/badge/version-0.9.65-blue)
+![version](https://img.shields.io/badge/version-0.9.66-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/Chrome%20%2F%20Edge-114%2B-lightgrey)
 ![manifest](https://img.shields.io/badge/Manifest-V3-orange)
@@ -43,8 +43,10 @@
 | 详细数据入口 | 一键打开 Dashboard（趋势、排行、明细） |
 | 会话归档入口 | 打开归档页：按项目 / 会话浏览全部对话，可搜索、可导出 Markdown 喂给模型做整合分析 |
 
-**Dashboard（点侧边栏右上角「详细数据 ↗」打开）**
+**这些卡片都是活的**：点标题收起 / 展开，**长按标题 0.4 秒**就能拖着换位置。顺序和折叠状态存在本地，重开侧边栏还是你摆的样子。设置卡片有自己的展开逻辑，所以只参与拖动、不参与折叠。图表类卡片展开时会自动按新宽度重画，不会变成空白。
 
+
+**Dashboard（点侧边栏右上角「详细数据 ↗」打开）**
 - 按日趋势（消耗 / 输入次数）
 - 按会话排行 —— 以项目维度对比积分消耗
 - 积分余额快照（余额随时间的变化曲线）
@@ -264,6 +266,7 @@ TapTap 制造 · 任务完成
 ├── background.js      # Service Worker：解析、入库（IndexedDB）、聚合查询
 ├── sidepanel.html     # 侧边栏 UI
 ├── sidepanel.js
+├── panel-layout.js    # 模块折叠 + 长按拖动排序（布局存本地）
 ├── dashboard.html     # 数据看板（趋势、排行、明细）
 ├── dashboard.js
 ├── archive.html       # 会话归档：项目 → 会话 → 逐轮对话

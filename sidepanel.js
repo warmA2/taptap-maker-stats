@@ -645,6 +645,14 @@ function sigChanged(key, sig) {
   return true;
 }
 
+// 面板被折叠时 canvas 宽度变 0，展开后数据签名没变、图表不会自己重画。
+// panel-layout.js 会在展开后调这个，清掉对应签名再画一遍。
+window.__panelRedraw = function (keys) {
+  const list = (keys && keys.length) ? keys : Object.keys(_caches);
+  list.forEach((k) => { delete _caches[k]; });
+  try { refreshCharts(); } catch (e) { /* 面板还没初始化完就算了 */ }
+};
+
 function refresh() {
   query('totals', null, (res) => {
     if (!res || !res.ok) return;
